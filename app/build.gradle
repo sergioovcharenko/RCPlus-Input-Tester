@@ -25,6 +25,16 @@ android {
         }
     }
 }
+// DJI libraries and AndroidX may pull mixed Kotlin 1.6/1.8 stdlib modules.
+// Use one coherent version to prevent duplicate kotlin.* classes.
+configurations.configureEach {
+    resolutionStrategy.force(
+        'org.jetbrains.kotlin:kotlin-stdlib:1.8.22',
+        'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22',
+        'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    )
+}
+
 dependencies {
     // MSDK 5.18.0 references ActivityCompat from AndroidX at runtime.
     implementation 'androidx.core:core:1.13.1'
