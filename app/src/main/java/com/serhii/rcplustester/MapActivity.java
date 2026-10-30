@@ -279,7 +279,7 @@ public final class MapActivity extends Activity {
                     if (Math.abs(value - previous) >= Math.max(0.05f, range.getFlat())) {
                         axisLast.put(axis, value);
                         capture(null, "ANDROID:AXIS:" + axis,
-                            InputDevice.getAxisName(axis) + "=" + String.format(Locale.US, "%.2f", value), true);
+                            MotionEvent.axisToString(axis) + "=" + String.format(Locale.US, "%.2f", value), true);
                     }
                 }
             }
