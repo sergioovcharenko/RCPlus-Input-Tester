@@ -7,10 +7,11 @@
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
   <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
-  <application android:name=".MyApplication" android:label="RC Plus Input Map 0.3"
+  <application android:name=".MyApplication" android:label="RC Plus Input Map 0.3.1"
     android:theme="@android:style/Theme.Material.NoActionBar"
     android:allowBackup="false" android:extractNativeLibs="true">
     <meta-data android:name="com.dji.sdk.API_KEY" android:value="${djiApiKey}"/>
+    <service android:name=".SdkProbeService" android:process=":sdk" android:exported="false"/>
     <activity android:name=".MapActivity" android:exported="true" android:screenOrientation="landscape">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
