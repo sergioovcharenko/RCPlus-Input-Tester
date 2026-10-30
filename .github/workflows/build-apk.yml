@@ -5,6 +5,9 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: rcplus-android-build
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-24.04
