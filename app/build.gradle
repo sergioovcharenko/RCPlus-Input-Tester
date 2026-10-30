@@ -1,0 +1,32 @@
+plugins { id 'com.android.application' }
+
+def djiKey = providers.environmentVariable('DJI_APP_KEY').orElse(providers.gradleProperty('DJI_APP_KEY')).orElse('').get().trim()
+if (!djiKey) throw new GradleException('DJI_APP_KEY is missing; configure the GitHub Actions repository secret')
+
+android {
+    namespace 'com.serhii.rcplustester'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.serhii.rcplustester'
+        minSdk 24
+        targetSdk 32
+        versionCode 3
+        versionName '0.3'
+        ndk { abiFilters 'arm64-v8a' }
+        manifestPlaceholders = [djiApiKey: djiKey]
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging {
+        jniLibs {
+            pickFirsts += ['**/libc++_shared.so']
+        }
+    }
+}
+dependencies {
+    implementation 'com.dji:dji-sdk-v5-aircraft:5.18.0'
+    compileOnly 'com.dji:dji-sdk-v5-aircraft-provided:5.18.0'
+    runtimeOnly 'com.dji:dji-sdk-v5-networkImp:5.18.0'
+}
