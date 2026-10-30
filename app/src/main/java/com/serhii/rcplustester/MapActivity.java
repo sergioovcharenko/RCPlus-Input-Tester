@@ -80,6 +80,10 @@ public final class MapActivity extends Activity {
             bound = false;
             sdkStatus.setText("DJI SDK: process exited/crashed. Android input tester is still active.");
             addEvent("DJI SDK process stopped unexpectedly");
+            String trace = CrashNotes.read(MapActivity.this);
+            String[] lines = trace.split("\\n");
+            String last = lines.length > 0 ? lines[lines.length - 1] : "no checkpoint";
+            addEvent("Last SDK checkpoint: " + last);
         }
     };
     private void startDjiSdk() {
@@ -87,6 +91,7 @@ public final class MapActivity extends Activity {
             Toast.makeText(this, "DJI SDK is already starting", Toast.LENGTH_SHORT).show();
             return;
         }
+        CrashNotes.record(this, "UI pressed Start DJI SDK");
         sdkStatus.setText("DJI SDK: starting isolated probe...");
         try {
             bound = bindService(new Intent(this, SdkProbeService.class), sdkConnection, Context.BIND_AUTO_CREATE);
@@ -168,6 +173,7 @@ public final class MapActivity extends Activity {
             selected = null;
             updateButtons();
         }), new LinearLayout.LayoutParams(0, dp(50), 1));
+        toolbar.addView(action("SDK log", this::showSdkLog), new LinearLayout.LayoutParams(0, dp(50), 1));
         toolbar.addView(action("Copy report", this::copyReport), new LinearLayout.LayoutParams(0, dp(50), 1));
         toolbar.addView(action("Devices", this::refreshDevices), new LinearLayout.LayoutParams(0, dp(50), 1));
         toolbar.addView(action("Reset", this::confirmReset), new LinearLayout.LayoutParams(0, dp(50), 1));
@@ -278,13 +284,31 @@ public final class MapActivity extends Activity {
         }
         deviceList.setText(b.length() == 0 ? "No external input devices" : b.toString());
     }
+    private void showSdkLog() {
+        final String trace = CrashNotes.read(this);
+        ScrollView scroll = new ScrollView(this);
+        TextView view = text(trace, 12, WHITE);
+        view.setTextIsSelectable(true);
+        view.setBackgroundColor(PANEL);
+        scroll.addView(view);
+        new AlertDialog.Builder(this)
+           .setTitle("DJI SDK STARTUP TRACE")
+           .setView(scroll)
+           .setNegativeButton("Close", null)
+           .setPositiveButton("Copy log", (dialog, which) -> {
+               ClipboardManager manager = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+               if (manager != null) manager.setPrimaryClip(ClipData.newPlainText("DJI SDK trace", trace));
+               Toast.makeText(this, "SDK diagnostic copied", Toast.LENGTH_SHORT).show();
+           }).show();
+    }
     private void copyReport() {
-        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.1\n" + sdkStatus.getText() + "\n");
+        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.2\n" + sdkStatus.getText() + "\n");
         for (String id : IDS) {
             b.append(id).append(": ").append(statuses.get(id));
             if (captured.containsKey(id)) b.append(" | ").append(captured.get(id));
             b.append("\n");
         }
+        b.append("\nSDK startup trace:\n").append(CrashNotes.read(this));
         b.append("\nEvents:\n");
         for (String e : events) b.append(e).append("\n");
         ClipboardManager manager = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
