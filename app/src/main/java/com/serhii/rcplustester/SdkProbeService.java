@@ -29,17 +29,21 @@ public final class SdkProbeService extends Service {
         i.putExtra(EXTRA_DETAIL, detail);
         i.putExtra(EXTRA_PRESSED, pressed);
         sendBroadcast(i);
+        if ("SDK:STATUS".equals(signal)) CrashNotes.record(this, "SDK STATUS " + detail);
     }
     private void status(String value) {
         broadcast(null, "SDK:STATUS", value, false);
     }
     @Override public void onCreate() {
         super.onCreate();
+        CrashNotes.record(this, "SDK_SERVICE onCreate");
         DjiInputBridge.attach((control, signal, detail, pressed) -> broadcast(control, signal, detail, pressed));
         status("DJI SDK is starting in isolated process...");
         try {
+            CrashNotes.record(this, "BEFORE SDKManager.getInstance().init");
             SDKManager.getInstance().init(this, new SDKManagerCallback() {
                 @Override public void onInitProcess(DJISDKInitEvent event, int progress) {
+                    CrashNotes.record(SdkProbeService.this, "onInitProcess " + event + " " + progress);
                     if (event == DJISDKInitEvent.INITIALIZE_COMPLETE) {
                         status("DJI SDK initialized; registering app...");
                         try { SDKManager.getInstance().registerApp(); }
@@ -65,7 +69,9 @@ public final class SdkProbeService extends Service {
                 }
                 @Override public void onDatabaseDownloadProgress(long current, long total) {}
             });
+            CrashNotes.record(this, "AFTER SDKManager.init returned");
         } catch (Throwable e) {
+            CrashNotes.exception(this, "DJI SDK initialization", e);
             status("DJI SDK initialization exception: " + e.toString());
         }
     }
