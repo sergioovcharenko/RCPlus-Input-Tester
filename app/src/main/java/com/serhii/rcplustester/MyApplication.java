@@ -4,16 +4,28 @@ import android.app.Application;
 import android.content.Context;
 
 /**
- * Keep the user-facing UI process independent from DJI native libraries.
- * DJI SDK initialization is limited to the :sdk service process; if it crashes
- * on unsupported hardware, the input tester UI stays on screen.
+ * SDK native startup runs only in :sdk process.
+ * Collect checkpoint/Java crash details so a crash cannot erase the explanation.
  */
 public final class MyApplication extends Application {
     @Override public void attachBaseContext(Context base) {
         super.attachBaseContext(base);
-        String name = android.app.Application.getProcessName();
-        if (name != null && name.endsWith(":sdk")) {
-            com.cySdkyc.clx.Helper.install(this);
+        String process = android.app.Application.getProcessName();
+        if (process != null && process.endsWith(":sdk")) {
+            CrashNotes.record(this, "SDK_PROCESS_ATTACH start; Android " +
+                android.os.Build.VERSION.RELEASE + " API=" + android.os.Build.VERSION.SDK_INT +
+                " ABI=" + java.util.Arrays.toString(android.os.Build.SUPPORTED_ABIS));
+            CrashNotes.installJavaCrashHandler(this);
+            try {
+                CrashNotes.record(this, "BEFORE DJI Helper.install");
+                com.cySdkyc.clx.Helper.install(this);
+                CrashNotes.record(this, "AFTER DJI Helper.install OK");
+            } catch (Throwable ex) {
+                CrashNotes.exception(this, "DJI Helper.install", ex);
+                throw ex;
+            }
+        } else {
+            CrashNotes.record(this, "UI_PROCESS_ATTACH OK");
         }
     }
 }
