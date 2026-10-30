@@ -5,6 +5,12 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
+import android.os.IBinder;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.hardware.input.InputManager;
@@ -49,36 +55,71 @@ public final class MapActivity extends Activity {
     private final SimpleDateFormat clock = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
     private TextView instruction, lastEvent, log, sdkStatus, counts, deviceList;
     private String selected;
+    private boolean bound;
+    private final BroadcastReceiver sdkEvents = new BroadcastReceiver() {
+        @Override public void onReceive(Context ctx, Intent intent) {
+            if (!SdkProbeService.ACTION_EVENT.equals(intent.getAction())) return;
+            String signal = intent.getStringExtra(SdkProbeService.EXTRA_SIGNAL);
+            String detail = intent.getStringExtra(SdkProbeService.EXTRA_DETAIL);
+            if ("SDK:STATUS".equals(signal)) {
+                sdkStatus.setText("DJI SDK: " + detail);
+                addEvent("SDK: " + detail);
+            } else {
+                capture(intent.getStringExtra(SdkProbeService.EXTRA_CONTROL),
+                    signal == null ? "SDK:unknown" : signal,
+                    detail == null ? "" : detail,
+                    intent.getBooleanExtra(SdkProbeService.EXTRA_PRESSED, false));
+            }
+        }
+    };
+    private final ServiceConnection sdkConnection = new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+            sdkStatus.setText("DJI SDK: process connected; waiting for registration...");
+        }
+        @Override public void onServiceDisconnected(ComponentName name) {
+            bound = false;
+            sdkStatus.setText("DJI SDK: process exited/crashed. Android input tester is still active.");
+            addEvent("DJI SDK process stopped unexpectedly");
+        }
+    };
+    private void startDjiSdk() {
+        if (bound) {
+            Toast.makeText(this, "DJI SDK is already starting", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        sdkStatus.setText("DJI SDK: starting isolated probe...");
+        try {
+            bound = bindService(new Intent(this, SdkProbeService.class), sdkConnection, Context.BIND_AUTO_CREATE);
+            if (!bound) {
+                sdkStatus.setText("DJI SDK: cannot bind to probe service");
+                addEvent("SDK bind failed");
+            }
+        } catch (Throwable e) {
+            bound = false;
+            sdkStatus.setText("DJI SDK: launch error: " + e);
+            addEvent("SDK launch error: " + e);
+        }
+    }
+
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         for (String id : IDS) statuses.put(id, "UNTESTED");
         createUi();
         refreshDevices();
-        DjiInputBridge.attach((id, signal, detail, active) -> runOnUiThread(() -> {
-            if ("SDK:STATUS".equals(signal)) {
-                sdkStatus.setText("DJI SDK: " + detail);
-                addEvent(detail);
-            } else {
-                capture(id, signal, detail, active);
-            }
-        }));
-        sdkStatus.setText("DJI SDK: " + DjiInputBridge.status());
+        sdkStatus.setText("DJI SDK: OFF. Android input is ready. Press Start DJI SDK to test it.");
     }
 
     @Override protected void onStart() {
         super.onStart();
-        DjiInputBridge.attach((id, signal, detail, active) -> runOnUiThread(() -> {
-            if ("SDK:STATUS".equals(signal)) {
-                sdkStatus.setText("DJI SDK: " + detail);
-            } else {
-                capture(id, signal, detail, active);
-            }
-        }));
+        registerReceiver(sdkEvents, new IntentFilter(SdkProbeService.ACTION_EVENT));
     }
-
     @Override protected void onStop() {
-        DjiInputBridge.detach();
+        if (bound) {
+            try { unbindService(sdkConnection); } catch (Exception ignored) {}
+            bound = false;
+        }
+        try { unregisterReceiver(sdkEvents); } catch (Exception ignored) {}
         super.onStop();
     }
 
@@ -120,6 +161,7 @@ public final class MapActivity extends Activity {
         root.addView(text("Android + DJI Mobile SDK V5 · read-only diagnostic", 12, WHITE));
 
         LinearLayout toolbar = row();
+        toolbar.addView(action("Start DJI SDK", this::startDjiSdk), new LinearLayout.LayoutParams(0, dp(50), 1.2f));
         toolbar.addView(action("No signal", () -> {
             if (selected == null) return;
             statuses.put(selected, "NO_SIGNAL");
@@ -131,7 +173,7 @@ public final class MapActivity extends Activity {
         toolbar.addView(action("Reset", this::confirmReset), new LinearLayout.LayoutParams(0, dp(50), 1));
         root.addView(toolbar);
 
-        sdkStatus = text("DJI SDK: initializing...", 13, ACCENT);
+        sdkStatus = text("DJI SDK: OFF (safe mode)", 13, ACCENT);
         root.addView(sdkStatus);
         instruction = text("Tap a control on the left, then press the physical button or move the stick.", 14, WHITE);
         instruction.setBackgroundColor(PANEL);
@@ -237,7 +279,7 @@ public final class MapActivity extends Activity {
         deviceList.setText(b.length() == 0 ? "No external input devices" : b.toString());
     }
     private void copyReport() {
-        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3\nDJI SDK: " + DjiInputBridge.status() + "\n");
+        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.1\n" + sdkStatus.getText() + "\n");
         for (String id : IDS) {
             b.append(id).append(": ").append(statuses.get(id));
             if (captured.containsKey(id)) b.append(" | ").append(captured.get(id));
