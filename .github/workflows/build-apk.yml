@@ -41,11 +41,25 @@ jobs:
             export DJI_APP_KEY=00000000000000000000000000000000
           fi
           gradle --no-daemon --stacktrace assembleDebug
+      - name: Confirm AndroidX ActivityCompat included in APK
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          apk = 'app/build/outputs/apk/debug/app-debug.apk'
+          with zipfile.ZipFile(apk) as z:
+              dex_files = [n for n in z.namelist() if n.startswith('classes') and n.endswith('.dex')]
+              found = any(b'Landroidx/core/app/ActivityCompat;' in z.read(n) for n in dex_files)
+              print('Dex files:', len(dex_files))
+              print('AndroidX ActivityCompat packaged:', found)
+              if not found:
+                  raise SystemExit('SDK required AndroidX ActivityCompat is missing from built APK')
+          PY
       - name: Upload registered APK
         if: ${{ env.DJI_APP_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: RCPlus-Input-Tester-0.3.2-debug
+          name: RCPlus-Input-Tester-0.3.3-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
