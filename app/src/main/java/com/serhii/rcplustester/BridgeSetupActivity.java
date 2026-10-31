@@ -106,7 +106,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.4", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.5", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -121,7 +121,7 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("v0.4: LEFT and RIGHT fingers are independent. Begin with LEFT ONLY, then RIGHT ONLY. Select BOTH only after single-stick tests. Red STOP BRIDGE stops the adapter.", 13));
+        content.addView(label("v0.5: improved continued touch strokes, independent L/R controls and ZOOM_DIAL camera pitch. Start with BOTH STICKS and test without aircraft. STOP BRIDGE ends all touches.", 13));
         TextView touchTitle = label("CONTROL TEST MODE", 18);
         touchTitle.setTextColor(MINT);
         content.addView(touchTitle);
@@ -129,7 +129,7 @@ public final class BridgeSetupActivity extends Activity {
             button("LEFT ONLY", () -> setMode(1)),
             button("RIGHT ONLY", () -> setMode(2)));
         content.addView(button("BOTH STICKS (after separate tests)", () -> setMode(3)));
-        content.addView(label("Mode: LEFT ONLY is the initial default. If you already used an older version, choose it here before testing.", 13));
+        content.addView(label("For motor-arm simulation select BOTH STICKS; single-stick modes intentionally ignore the other stick. To diagnose independent axes, test LEFT ONLY and RIGHT ONLY separately.", 13));
         CheckBox centers = new CheckBox(this);
         centers.setText("SHOW CENTER MARKERS (L/R crosshairs on simulator)");
         centers.setTextColor(TEXT);
@@ -157,20 +157,50 @@ public final class BridgeSetupActivity extends Activity {
         tuning.setTextColor(MINT);
         content.addView(tuning);
         content.addView(label("With SHOW CENTER MARKERS enabled, match the L/R crosshairs to the middle of each on-screen joystick. X is horizontal, Y is vertical, percentages of the FULL display.", 13));
-        numeric(content, "Left center X", "left_x", 5, 45, 20);
+        numeric(content, "Left center X", "left_x", 5, 45, 16);
         numeric(content, "Left center Y", "left_y", 40, 95, 71);
-        numeric(content, "Right center X", "right_x", 55, 95, 83);
+        numeric(content, "Right center X", "right_x", 55, 95, 85);
         numeric(content, "Right center Y", "right_y", 40, 95, 71);
-        numeric(content, "Stick travel radius", "radius", 4, 25, 12);
+        numeric(content, "Stick travel radius", "radius", 4, 25, 25);
         numeric(content, "SDK stick maximum", "raw_max", 1, 1500, 660);
         content.addView(button("RESET CENTER COORDINATES TO DEFAULT", () -> {
             BridgeConfig.prefs(this).edit()
-                .putInt("left_x", 20).putInt("left_y", 71)
-                .putInt("right_x", 83).putInt("right_y", 71)
-                .putInt("radius", 12).apply();
+                .putInt("left_x", 16).putInt("left_y", 71)
+                .putInt("right_x", 85).putInt("right_y", 71)
+                .putInt("radius", 25).apply();
             Toast.makeText(this, "Centers reset. Reopen setup to refresh sliders.",
                 Toast.LENGTH_LONG).show();
         }));
+        TextView cameraTitle = label("CAMERA PITCH · ZOOM_DIAL (lower-right wheel)", 18);
+        cameraTitle.setTextColor(MINT);
+        content.addView(cameraTitle);
+        CheckBox cameraEnabled = new CheckBox(this);
+        cameraEnabled.setText("ENABLE CAMERA PITCH WHEEL (simulator touch slider)");
+        cameraEnabled.setTextColor(TEXT);
+        cameraEnabled.setChecked(BridgeConfig.prefs(this).getBoolean("camera_enabled", false));
+        cameraEnabled.setOnCheckedChangeListener((button, enabled) ->
+            BridgeConfig.prefs(this).edit().putBoolean("camera_enabled", enabled).apply());
+        content.addView(cameraEnabled);
+        CheckBox cameraConcurrent = new CheckBox(this);
+        cameraConcurrent.setText("EXPERIMENTAL: allow camera movements while sticks held");
+        cameraConcurrent.setTextColor(TEXT);
+        cameraConcurrent.setChecked(BridgeConfig.prefs(this).getBoolean("camera_concurrent", false));
+        cameraConcurrent.setOnCheckedChangeListener((button, enabled) ->
+            BridgeConfig.prefs(this).edit().putBoolean("camera_concurrent", enabled).apply());
+        content.addView(cameraConcurrent);
+        CheckBox cameraReverse = new CheckBox(this);
+        cameraReverse.setText("REVERSE camera wheel direction");
+        cameraReverse.setTextColor(TEXT);
+        cameraReverse.setChecked(BridgeConfig.prefs(this).getBoolean("camera_invert", false));
+        cameraReverse.setOnCheckedChangeListener((button, enabled) ->
+            BridgeConfig.prefs(this).edit().putBoolean("camera_invert", enabled).apply());
+        content.addView(cameraReverse);
+        content.addView(label("The camera is adjusted through the original Virtual Flight touchscreen slider on the right edge, not by an aircraft/gimbal command. Without concurrent mode, wheel changes are queued until sticks are released.", 13));
+        numeric(content, "Camera slider X", "camera_x", 88, 99, 95);
+        numeric(content, "Camera initial Y", "camera_y", 40, 90, 70);
+        numeric(content, "Camera upper limit Y", "camera_top", 25, 70, 50);
+        numeric(content, "Camera lower limit Y", "camera_bottom", 60, 95, 84);
+        numeric(content, "Camera wheel step", "camera_step", 1, 8, 3);
         TextView direction = label("REVERSE AXIS DIRECTION IF NECESSARY", 18);
         direction.setTextColor(MINT);
         content.addView(direction);
