@@ -86,8 +86,9 @@ public final class BridgeSetupActivity extends Activity {
     private boolean accessibilityEnabled() {
         String enabled = Settings.Secure.getString(getContentResolver(),
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        return enabled != null && enabled.contains(getPackageName() +
-            "/.VirtualFlightAccessibilityService");
+        return enabled != null && (enabled.contains(getPackageName() +
+            "/" + VirtualFlightAccessibilityService.class.getName()) ||
+            enabled.contains(getPackageName() + "/.VirtualFlightAccessibilityService"));
     }
     private void updateState() {
         if (state == null) return;
@@ -144,7 +145,7 @@ public final class BridgeSetupActivity extends Activity {
         numeric(content, "Right center X", "right_x", 55, 95, 83);
         numeric(content, "Right center Y", "right_y", 40, 95, 71);
         numeric(content, "Stick travel radius", "radius", 4, 25, 12);
-        numeric(content, "SDK stick maximum", "raw_max", 100, 1500, 660);
+        numeric(content, "SDK stick maximum", "raw_max", 1, 1500, 660);
         TextView direction = label("REVERSE AXIS DIRECTION IF NECESSARY", 18);
         direction.setTextColor(MINT);
         content.addView(direction);
