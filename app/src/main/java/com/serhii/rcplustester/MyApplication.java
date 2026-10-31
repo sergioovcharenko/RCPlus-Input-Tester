@@ -25,6 +25,7 @@ public final class MyApplication extends Application {
                 throw ex;
             }
         } else {
+            CrashNotes.installJavaCrashHandler(this);
             CrashNotes.record(this, "UI_PROCESS_ATTACH OK");
         }
     }
