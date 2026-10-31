@@ -104,7 +104,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.2", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.3", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -119,7 +119,7 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("Open DJI Virtual Flight. A small panel should appear at top-left. If it says NOT PAIRED, tap PAIR APP. Then try TEST TOUCH. Red STOP BRIDGE stops virtual control.", 13));
+        content.addView(label("Open DJI Virtual Flight. If NOT PAIRED tap PAIR APP. In v0.3 neutral sticks generate NO touches; while moving, touch updates are limited to 4Hz. Red STOP BRIDGE stops all virtual control.", 13));
         content.addView(label("SIMULATOR PACKAGE (change only if the installed variant differs):", 14));
         packageInput = new EditText(this);
         packageInput.setText(BridgeConfig.target(this));
@@ -139,8 +139,8 @@ public final class BridgeSetupActivity extends Activity {
         TextView tuning = label("TOUCH STICK CALIBRATION (percent of full screen)", 18);
         tuning.setTextColor(MINT);
         content.addView(tuning);
-        content.addView(label("Defaults estimated from your photo: left ~17% / 71%, right ~83% / 71%. Change positions if touches miss the joystick circles.", 13));
-        numeric(content, "Left center X", "left_x", 5, 45, 17);
+        content.addView(label("Defaults estimated from your photo: left ~20% / 71%, right ~83% / 71%. Change positions if touches miss the joystick circles.", 13));
+        numeric(content, "Left center X", "left_x", 5, 45, 20);
         numeric(content, "Left center Y", "left_y", 40, 95, 71);
         numeric(content, "Right center X", "right_x", 55, 95, 83);
         numeric(content, "Right center Y", "right_y", 40, 95, 71);
