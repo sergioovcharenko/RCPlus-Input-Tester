@@ -5,6 +5,8 @@ import dji.sdk.keyvalue.key.KeyTools;
 import dji.sdk.keyvalue.key.RemoteControllerKey;
 import dji.sdk.keyvalue.key.FlightControllerKey;
 import dji.v5.manager.KeyManager;
+import dji.v5.common.callback.CommonCallbacks;
+import dji.v5.common.error.IDJIError;
 
 /** Read-only subscriptions to supported MSDK V5 remote-controller inputs. */
 public final class DjiInputBridge {
@@ -38,6 +40,52 @@ public final class DjiInputBridge {
             if (current != null) emit(control, name, current);
         });
     }
+    /** Explicit read from hardware. Unlike the synchronous cache and listener,
+     * this can return the actual SDK error when no aircraft is connected.
+     */
+    private static <T> void requestValue(DJIKeyInfo<T> info, String label, String control) {
+        Sink s = sink;
+        if (s != null) s.onInput(control, "SDK:FSN_REQUEST", "Reading " + label + " from DJI hardware...", false);
+        try {
+            KeyManager.getInstance().getValue(KeyTools.createKey(info),
+                new CommonCallbacks.CompletionCallbackWithParam<T>() {
+                    @Override public void onSuccess(T value) {
+                        Sink listener = sink;
+                        if (listener != null) {
+                            listener.onInput(control, "SDK:FSN_READ_OK",
+                                label + " = " + String.valueOf(value), value != null);
+                        }
+                    }
+                    @Override public void onFailure(IDJIError error) {
+                        Sink listener = sink;
+                        if (listener != null) {
+                            String description = error == null ? "unknown" :
+                                error.errorCode() + " " + error.description();
+                            listener.onInput(control, "SDK:FSN_READ_ERROR",
+                                label + " unavailable: " + description, false);
+                        }
+                    }
+                });
+        } catch (Throwable t) {
+            Sink listener = sink;
+            if (listener != null) listener.onInput(control, "SDK:FSN_READ_ERROR",
+                label + " request exception: " + t.toString(), false);
+        }
+    }
+
+    public static void probeFlightMode() {
+        if (!started) {
+            Sink listener = sink;
+            if (listener != null) listener.onInput("F_S_N", "SDK:FSN_READ_ERROR",
+                "DJI listeners are not active; tap Start DJI SDK first", false);
+            return;
+        }
+        requestValue(FlightControllerKey.KeyRemoteControllerFlightMode,
+            "RemoteControllerFlightMode", "F_S_N");
+        requestValue(RemoteControllerKey.KeyConnection,
+            "RC_CONNECTION", null);
+    }
+
     public static synchronized void start() {
         if (started) return;
         started = true;
