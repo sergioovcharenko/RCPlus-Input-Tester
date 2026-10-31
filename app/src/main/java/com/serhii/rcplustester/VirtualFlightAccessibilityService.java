@@ -37,9 +37,9 @@ import java.util.Map;
  */
 public final class VirtualFlightAccessibilityService extends AccessibilityService {
     private static final String TAG = "VFlightBridge";
-    // A maximum of four 2-stick touch frames per second when sticks are moving.
-    // At neutral, no synthetic touches are generated.
-    private static final int FRAME_DURATION_MS = 250;
+    // Continue strokes immediately after Android confirms the previous stroke.
+    // This remains experimental Accessibility input, not a true HID controller.
+    private static final int FRAME_DURATION_MS = 200;
     private static final float STICK_DEADZONE = 0.065f;
     private static final int CANCEL_LIMIT = 12;
     private static final long CANCEL_WINDOW_MS = 10000;
@@ -63,6 +63,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private int recentCancels;
     private long lastOverlayRefresh;
     private long testGestureUntil;
+    private long lastGestureCompletedMs;
+    private long largestDispatchGapMs;
 
     private final BroadcastReceiver inputs = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -162,6 +164,14 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         }, 25);
     }
 
+    // A new dispatch during an active stroke cancels that stroke. Instead,
+    // queue the continuation immediately from the completion callback.
+    private void continueImmediately() {
+        handler.post(() -> {
+            if (active()) frame();
+        });
+    }
+
     private float raw(String key) {
         Float v = axes.get(key);
         return v == null ? 0f : v;
@@ -218,10 +228,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         windowManager.getDefaultDisplay().getRealMetrics(dm);
         float width = dm.widthPixels, height = dm.heightPixels;
         float radius = Math.min(width, height) *
-            BridgeConfig.number(this, "radius", 12) / 100f;
-        float leftCx = width * BridgeConfig.number(this, "left_x", 20) / 100f;
+            BridgeConfig.number(this, "radius", 25) / 100f;
+        float leftCx = width * BridgeConfig.number(this, "left_x", 16) / 100f;
         float leftCy = height * BridgeConfig.number(this, "left_y", 71) / 100f;
-        float rightCx = width * BridgeConfig.number(this, "right_x", 83) / 100f;
+        float rightCx = width * BridgeConfig.number(this, "right_x", 85) / 100f;
         float rightCy = height * BridgeConfig.number(this, "right_y", 71) / 100f;
 
         // Only move the corresponding virtual joystick. Each finger starts,
@@ -260,6 +270,11 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             gestureResult = "touch: L=" + (wantLeft ? "ON" : "OFF") +
                 " R=" + (wantRight ? "ON" : "OFF");
             final int token = ++generation;
+            long dispatchAt = SystemClock.uptimeMillis();
+            if (lastGestureCompletedMs > 0) {
+                long gap = dispatchAt - lastGestureCompletedMs;
+                if (gap > largestDispatchGapMs) largestDispatchGapMs = gap;
+            }
             boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription g) {
                     if (token != generation) return;
@@ -271,8 +286,9 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     completedFrames++;
                     gestureResult = "touch: OK " + completedFrames +
                         " (L=" + (wantLeft ? 1 : 0) + " R=" + (wantRight ? 1 : 0) + ")";
+                    lastGestureCompletedMs = SystemClock.uptimeMillis();
                     if (active() && (stickMoving() ||
-                            leftStroke != null || rightStroke != null)) scheduleFrame();
+                            leftStroke != null || rightStroke != null)) continueImmediately();
                 }
                 @Override public void onCancelled(GestureDescription g) {
                     if (token != generation) return;
@@ -284,7 +300,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     CrashNotes.record(VirtualFlightAccessibilityService.this,
                         "Gesture cancelled; count=" + cancelledFrames);
                     onGestureCancel();
-                    if (active() && stickMoving()) handler.postDelayed(() -> scheduleFrame(), 700);
+                    if (active() && stickMoving()) handler.postDelayed(() -> scheduleFrame(), 200);
                 }
             }, handler);
             if (!accepted) {
@@ -293,7 +309,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 rightStroke = null;
                 gestureResult = "touch: Android rejected dispatch";
                 onGestureCancel();
-                if (active() && stickMoving()) handler.postDelayed(() -> scheduleFrame(), 700);
+                if (active() && stickMoving()) handler.postDelayed(() -> scheduleFrame(), 200);
             }
         } catch (Throwable t) {
             busy = false;
@@ -358,10 +374,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         testGestureUntil = SystemClock.uptimeMillis() + 800;
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
-        float cx = dm.widthPixels * BridgeConfig.number(this, "left_x", 20) / 100f;
+        float cx = dm.widthPixels * BridgeConfig.number(this, "left_x", 16) / 100f;
         float cy = dm.heightPixels * BridgeConfig.number(this, "left_y", 71) / 100f;
         float radius = Math.min(dm.widthPixels, dm.heightPixels) *
-            BridgeConfig.number(this, "radius", 12) / 100f;
+            BridgeConfig.number(this, "radius", 25) / 100f;
         gestureResult = "test touch: sending upward drag";
         try {
             GestureDescription g = new GestureDescription.Builder().addStroke(
@@ -393,7 +409,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             super.onDraw(canvas);
             float w = getWidth(), h = getHeight();
             float radius = Math.min(w, h) *
-                BridgeConfig.number(VirtualFlightAccessibilityService.this, "radius", 12) / 100f;
+                BridgeConfig.number(VirtualFlightAccessibilityService.this, "radius", 25) / 100f;
             drawMarker(canvas, "L", w * BridgeConfig.number(
                 VirtualFlightAccessibilityService.this, "left_x", 20) / 100f,
                 h * BridgeConfig.number(VirtualFlightAccessibilityService.this, "left_y", 71) / 100f,
@@ -539,6 +555,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 (eligibleApp() ? " [PAIRED]" : " [NOT PAIRED]") +
                 "\n" + sdk + " | " + gestureResult +
                 "\nMode=" + (mode() == 1 ? "LEFT" : mode() == 2 ? "RIGHT" : "BOTH") +
+                " cancel=" + cancelledFrames + " gapMax=" + largestDispatchGapMs + "ms" +
                 " LS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
             if (!diagnostic.contentEquals(debugLabel.getText())) debugLabel.setText(diagnostic);
