@@ -106,7 +106,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.5", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.5.1", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -121,7 +121,7 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("v0.5: improved continued touch strokes, independent L/R controls and ZOOM_DIAL camera pitch. Start with BOTH STICKS and test without aircraft. STOP BRIDGE ends all touches.", 13));
+        content.addView(label("v0.5.1: fixes NOT PAIRED regression on DJI RC Plus 2. If the overlay identifies com.android.launcher3 while Virtual Flight is visible, choose the compatibility mode below. Use only inside the simulator; press STOP BRIDGE before leaving it.", 13));
         TextView touchTitle = label("CONTROL TEST MODE", 18);
         touchTitle.setTextColor(MINT);
         content.addView(touchTitle);
@@ -137,24 +137,25 @@ public final class BridgeSetupActivity extends Activity {
         centers.setOnCheckedChangeListener((button, checked) ->
             BridgeConfig.prefs(this).edit().putBoolean("show_centers", checked).apply());
         content.addView(centers);
-        content.addView(label("SIMULATOR PACKAGE (change only if the installed variant differs):", 14));
+        TextView compatibilityTitle = label("SIMULATOR DETECTION", 18);
+        compatibilityTitle.setTextColor(MINT);
+        content.addView(compatibilityTitle);
+        row(content,
+            button("NORMAL: DJI VIRTUAL FLIGHT", () ->
+                choosePackage(BridgeConfig.TARGET_DEFAULT)),
+            button("COMPATIBILITY: LAUNCHER3", () ->
+                choosePackage("com.android.launcher3")));
+        content.addView(label("Use COMPATIBILITY only when the original game is running, but the overlay says App: com.android.launcher3. In compatibility mode, STOP BRIDGE before opening Android home/settings to prevent unwanted touches.", 13));
+        content.addView(label("CURRENT TARGET PACKAGE (read-only):", 14));
         packageInput = new EditText(this);
         packageInput.setText(BridgeConfig.target(this));
         packageInput.setTextColor(TEXT);
         packageInput.setSingleLine(true);
+        packageInput.setEnabled(false);
         packageInput.setTextSize(14);
         content.addView(packageInput);
-        packageInput.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                // We deliberately support only the verified simulator package.
-                // A past accidental pairing of Android launcher caused false status.
-                BridgeConfig.prefs(BridgeSetupActivity.this).edit()
-                    .putString("target", BridgeConfig.TARGET_DEFAULT).apply();
-                updateState();
-            }
-            @Override public void afterTextChanged(Editable s) {}
-        });
+        // The two explicit mode buttons above change the package instead of
+        // unrestricted text entry, to avoid injecting touches into arbitrary apps.
         TextView tuning = label("TOUCH STICK CALIBRATION (percent of full screen)", 18);
         tuning.setTextColor(MINT);
         content.addView(tuning);
@@ -216,6 +217,14 @@ public final class BridgeSetupActivity extends Activity {
         super.onResume();
         updateState();
     }
+    private void choosePackage(String target) {
+        if (!BridgeConfig.TARGET_DEFAULT.equals(target) &&
+                !"com.android.launcher3".equals(target)) return;
+        BridgeConfig.prefs(this).edit().putString("target", target).apply();
+        if (packageInput != null) packageInput.setText(target);
+        updateState();
+        Toast.makeText(this, "Bridge target: " + target, Toast.LENGTH_SHORT).show();
+    }
     private void setMode(int mode) {
         BridgeConfig.prefs(this).edit().putInt("touch_mode", mode).apply();
         String label = mode == 1 ? "LEFT ONLY" : mode == 2 ? "RIGHT ONLY" : "BOTH STICKS";
@@ -254,7 +263,7 @@ public final class BridgeSetupActivity extends Activity {
         updateState();
     }
     private void openVirtualFlight() {
-        String target = BridgeConfig.target(this);
+        String target = BridgeConfig.TARGET_DEFAULT;
         Intent launch = getPackageManager().getLaunchIntentForPackage(target);
         if (launch == null) {
             Toast.makeText(this, "Simulator package not found: " + target +
