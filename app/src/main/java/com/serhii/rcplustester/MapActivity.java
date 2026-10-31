@@ -174,7 +174,7 @@ public final class MapActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.setFocusableInTouchMode(true);
-        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER / FLIGHT BRIDGE 0.2", 21, ACCENT));
+        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER / FLIGHT BRIDGE 0.3", 21, ACCENT));
         root.addView(text("Android + DJI Mobile SDK V5 · read-only diagnostic", 12, WHITE));
 
         LinearLayout toolbar = row();
