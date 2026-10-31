@@ -19,12 +19,12 @@ public final class BridgeConfig {
     public static int number(Context c, String key, int fallback) {
         return prefs(c).getInt(key, fallback);
     }
-    public static float scale(Context c) { return Math.max(100f, number(c, "raw_max", 660)); }
+    public static float scale(Context c) { return Math.max(1f, number(c, "raw_max", 660)); }
     public static boolean invert(Context c, String axis) {
         return prefs(c).getBoolean("invert_" + axis, false);
     }
     public static float norm(float input, float max, boolean invert) {
-        float n = Math.abs(input) <= 1.01f ? input : input / max;
+        float n = input / max;
         return Math.max(-1f, Math.min(1f, invert ? -n : n));
     }
 }
