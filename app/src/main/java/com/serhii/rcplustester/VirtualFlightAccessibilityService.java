@@ -59,6 +59,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private long cancelWindowStarted;
     private int recentCancels;
     private long lastOverlayRefresh;
+    private long testGestureUntil;
 
     private final BroadcastReceiver inputs = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -167,10 +168,18 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             BridgeConfig.invert(this, key));
         return Math.abs(value) < STICK_DEADZONE ? 0f : value;
     }
-    private boolean stickMoving() {
-        return norm("LS_X") != 0f || norm("LS_Y") != 0f ||
-            norm("RS_X") != 0f || norm("RS_Y") != 0f;
+
+    private int mode() {
+        // 1=left only, 2=right only, 3=both. Left-only is safest initial test.
+        return BridgeConfig.number(this, "touch_mode", 1);
     }
+    private boolean leftMoving() {
+        return mode() != 2 && (norm("LS_X") != 0f || norm("LS_Y") != 0f);
+    }
+    private boolean rightMoving() {
+        return mode() != 1 && (norm("RS_X") != 0f || norm("RS_Y") != 0f);
+    }
+    private boolean stickMoving() { return leftMoving() || rightMoving(); }
 
     private static Path path(float fromX, float fromY, float toX, float toY) {
         Path p = new Path();
@@ -180,16 +189,28 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     }
 
     private void frame() {
-        if (SystemClock.uptimeMillis() - lastOverlayRefresh > 350) {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastOverlayRefresh > 350) {
             updateOverlay();
-            lastOverlayRefresh = SystemClock.uptimeMillis();
+            lastOverlayRefresh = now;
         }
-        if (!active() || !stickMoving()) {
+        if (!active()) {
             if (leftStroke != null || rightStroke != null || busy) stopGesture();
-            if (eligibleApp()) gestureResult = "touch: idle (no synthetic input)";
             return;
         }
+        if (now < testGestureUntil) return;
         if (busy) return;
+
+        // No synthetic touches at all while neutral, unless an existing
+        // individual finger needs a clean UP event.
+        final boolean wantLeft = leftMoving();
+        final boolean wantRight = rightMoving();
+        if (!wantLeft && !wantRight && leftStroke == null && rightStroke == null) {
+            gestureResult = "touch: idle (no fingers)";
+            return;
+        }
+        if (windowManager == null) return;
+
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
         float width = dm.widthPixels, height = dm.heightPixels;
@@ -200,45 +221,55 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         float rightCx = width * BridgeConfig.number(this, "right_x", 83) / 100f;
         float rightCy = height * BridgeConfig.number(this, "right_y", 71) / 100f;
 
-        // Android screen Y grows downward. Physical stick up = virtual upward.
-        float targetLX = leftCx + norm("LS_X") * radius;
-        float targetLY = leftCy - norm("LS_Y") * radius;
-        float targetRX = rightCx + norm("RS_X") * radius;
-        float targetRY = rightCy - norm("RS_Y") * radius;
+        // Only move the corresponding virtual joystick. Each finger starts,
+        // continues, and ends independently.
+        final float targetLX = wantLeft ? leftCx + norm("LS_X") * radius : leftX;
+        final float targetLY = wantLeft ? leftCy - norm("LS_Y") * radius : leftY;
+        final float targetRX = wantRight ? rightCx + norm("RS_X") * radius : rightX;
+        final float targetRY = wantRight ? rightCy - norm("RS_Y") * radius : rightY;
 
-        float fromLX = leftStroke == null ? leftCx : leftX;
-        float fromLY = leftStroke == null ? leftCy : leftY;
-        float fromRX = rightStroke == null ? rightCx : rightX;
-        float fromRY = rightStroke == null ? rightCy : rightY;
-
+        GestureDescription.StrokeDescription nextLeft = null, nextRight = null;
+        GestureDescription.Builder builder = new GestureDescription.Builder();
         try {
-            Path lpath = path(fromLX, fromLY, targetLX, targetLY);
-            Path rpath = path(fromRX, fromRY, targetRX, targetRY);
-            GestureDescription.StrokeDescription nextLeft = leftStroke == null
-                ? new GestureDescription.StrokeDescription(lpath, 0, FRAME_DURATION_MS, true)
-                : leftStroke.continueStroke(lpath, 0, FRAME_DURATION_MS, true);
-            GestureDescription.StrokeDescription nextRight = rightStroke == null
-                ? new GestureDescription.StrokeDescription(rpath, 0, FRAME_DURATION_MS, true)
-                : rightStroke.continueStroke(rpath, 0, FRAME_DURATION_MS, true);
-            GestureDescription gesture = new GestureDescription.Builder()
-                .addStroke(nextLeft).addStroke(nextRight).build();
+            if (wantLeft || leftStroke != null) {
+                float fromX = leftStroke == null ? leftCx : leftX;
+                float fromY = leftStroke == null ? leftCy : leftY;
+                Path lp = path(fromX, fromY, targetLX, targetLY);
+                nextLeft = leftStroke == null
+                    ? new GestureDescription.StrokeDescription(lp, 0, FRAME_DURATION_MS, wantLeft)
+                    : leftStroke.continueStroke(lp, 0, FRAME_DURATION_MS, wantLeft);
+                builder.addStroke(nextLeft);
+            }
+            if (wantRight || rightStroke != null) {
+                float fromX = rightStroke == null ? rightCx : rightX;
+                float fromY = rightStroke == null ? rightCy : rightY;
+                Path rp = path(fromX, fromY, targetRX, targetRY);
+                nextRight = rightStroke == null
+                    ? new GestureDescription.StrokeDescription(rp, 0, FRAME_DURATION_MS, wantRight)
+                    : rightStroke.continueStroke(rp, 0, FRAME_DURATION_MS, wantRight);
+                builder.addStroke(nextRight);
+            }
+
+            final GestureDescription.StrokeDescription newLeft = nextLeft;
+            final GestureDescription.StrokeDescription newRight = nextRight;
+            GestureDescription gesture = builder.build();
             busy = true;
-            gestureResult = "touch: dispatched";
+            gestureResult = "touch: L=" + (wantLeft ? "ON" : "OFF") +
+                " R=" + (wantRight ? "ON" : "OFF");
             final int token = ++generation;
             boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription g) {
                     if (token != generation) return;
-                    leftStroke = nextLeft;
-                    rightStroke = nextRight;
-                    leftX = targetLX;
-                    leftY = targetLY;
-                    rightX = targetRX;
-                    rightY = targetRY;
+                    leftStroke = wantLeft ? newLeft : null;
+                    rightStroke = wantRight ? newRight : null;
+                    if (wantLeft) { leftX = targetLX; leftY = targetLY; }
+                    if (wantRight) { rightX = targetRX; rightY = targetRY; }
                     busy = false;
                     completedFrames++;
-                    gestureResult = "touch: OK (" + completedFrames + " frames)";
-                    if (active() && stickMoving()) scheduleFrame();
-                    else stopGesture();
+                    gestureResult = "touch: OK " + completedFrames +
+                        " (L=" + (wantLeft ? 1 : 0) + " R=" + (wantRight ? 1 : 0) + ")";
+                    if (active() && (stickMoving() ||
+                            leftStroke != null || rightStroke != null)) scheduleFrame();
                 }
                 @Override public void onCancelled(GestureDescription g) {
                     if (token != generation) return;
@@ -246,28 +277,27 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     leftStroke = null;
                     rightStroke = null;
                     cancelledFrames++;
-                    gestureResult = "touch: CANCELLED (" + cancelledFrames + ")";
-                    Log.w(TAG, "Gesture cancelled by Android or user input");
+                    gestureResult = "touch: CANCELLED " + cancelledFrames;
+                    CrashNotes.record(VirtualFlightAccessibilityService.this,
+                        "Gesture cancelled; count=" + cancelledFrames);
                     onGestureCancel();
-                    if (BridgeConfig.armed(VirtualFlightAccessibilityService.this) &&
-                        stickMoving()) handler.postDelayed(() -> scheduleFrame(), 500);
+                    if (active() && stickMoving()) handler.postDelayed(() -> scheduleFrame(), 700);
                 }
             }, handler);
             if (!accepted) {
                 busy = false;
                 leftStroke = null;
                 rightStroke = null;
-                gestureResult = "touch: dispatchGesture returned false";
-                Log.w(TAG, "Android rejected bridge gesture");
+                gestureResult = "touch: Android rejected dispatch";
                 onGestureCancel();
-                if (BridgeConfig.armed(this) && stickMoving())
-                    handler.postDelayed(() -> scheduleFrame(), 500);
+                if (active() && stickMoving()) handler.postDelayed(() -> scheduleFrame(), 700);
             }
         } catch (Throwable t) {
             busy = false;
             leftStroke = null;
             rightStroke = null;
             gestureResult = "touch: exception " + t.getClass().getSimpleName();
+            CrashNotes.exception(this, "Gesture dispatch", t);
             Log.e(TAG, "Gesture bridge failed", t);
             onGestureCancel();
         }
@@ -282,6 +312,11 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         recentCancels++;
         if (recentCancels >= CANCEL_LIMIT) {
             gestureResult = "AUTO STOP: excessive gesture cancellations";
+            BridgeConfig.prefs(this).edit().putString("last_stop_reason",
+                "AUTO STOP: " + recentCancels + " cancelled touches in 10 seconds").apply();
+            CrashNotes.record(this, gestureResult);
+            android.widget.Toast.makeText(this,
+                "Bridge stopped: too many cancelled touches", android.widget.Toast.LENGTH_LONG).show();
             BridgeConfig.setArmed(this, false);
             stopGesture();
             updateOverlay();
@@ -292,16 +327,20 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private void stopGesture() {
         generation++;
         busy = false;
-        if (leftStroke != null && rightStroke != null) {
+        if (leftStroke != null || rightStroke != null) {
             try {
-                Path lp = path(leftX, leftY, leftX, leftY);
-                Path rp = path(rightX, rightY, rightX, rightY);
-                GestureDescription finish = new GestureDescription.Builder()
-                    .addStroke(leftStroke.continueStroke(lp, 0, 40, false))
-                    .addStroke(rightStroke.continueStroke(rp, 0, 40, false))
-                    .build();
-                dispatchGesture(finish, null, handler);
+                GestureDescription.Builder builder = new GestureDescription.Builder();
+                if (leftStroke != null) {
+                    Path lp = path(leftX, leftY, leftX, leftY);
+                    builder.addStroke(leftStroke.continueStroke(lp, 0, 40, false));
+                }
+                if (rightStroke != null) {
+                    Path rp = path(rightX, rightY, rightX, rightY);
+                    builder.addStroke(rightStroke.continueStroke(rp, 0, 40, false));
+                }
+                dispatchGesture(builder.build(), null, handler);
             } catch (Throwable t) {
+                CrashNotes.record(this, "Could not finish touch: " + t);
                 Log.w(TAG, "Could not finish touch sequence: " + t.getMessage());
             }
         }
@@ -313,6 +352,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private void testGesture() {
         if (!eligibleApp() || windowManager == null) return;
         stopGesture();
+        testGestureUntil = SystemClock.uptimeMillis() + 800;
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
         float cx = dm.widthPixels * BridgeConfig.number(this, "left_x", 20) / 100f;
@@ -428,7 +468,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             String diagnostic = "App: " + foregroundPackage +
                 (eligibleApp() ? " [PAIRED]" : " [NOT PAIRED]") +
                 "\n" + sdk + " | " + gestureResult +
-                "\nLS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
+                "\nMode=" + (mode() == 1 ? "LEFT" : mode() == 2 ? "RIGHT" : "BOTH") +
+                " LS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
             if (!diagnostic.contentEquals(debugLabel.getText())) debugLabel.setText(diagnostic);
         }
