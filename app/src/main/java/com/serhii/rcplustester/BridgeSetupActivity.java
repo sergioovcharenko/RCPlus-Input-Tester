@@ -98,7 +98,9 @@ public final class BridgeSetupActivity extends Activity {
             "\nLast bridge stop: " + BridgeConfig.prefs(this).getString(
                 "last_stop_reason", "No automatic stop recorded") +
             "\nLong gesture result: " + BridgeConfig.prefs(this).getString(
-                "last_diagnostic_result", "Not tested yet"));
+                "last_diagnostic_result", "Not tested yet") +
+            "\nScreen calibration: " + BridgeConfig.prefs(this).getString(
+                "last_calibration", "Not measured yet"));
     }
     @Override public void onCreate(Bundle stateBundle) {
         super.onCreate(stateBundle);
@@ -108,7 +110,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.6 TEST", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.7 AUTO CAL TEST", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -123,7 +125,15 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("v0.6 TEST: diagnostic build, not verified for flight. In Virtual Flight use TEST 10s L first, then TEST 10s 2X. Each test sends a single uninterrupted 10-second gesture. Live physical stick mapping from 0.5.1 is experimental and OFF by default.", 13));
+        content.addView(label("v0.7 AUTO CAL TEST: find virtual joystick centers & ring radii from an Android 11 screenshot. The app applies calibration only when both circles are detected confidently. Live physical stick control remains EXPERIMENTAL and OFF by default.", 13));
+        CheckBox autoCal = new CheckBox(this);
+        autoCal.setText("AUTO DETECT SCREEN JOYSTICKS (every 16s while idle)");
+        autoCal.setTextColor(MINT);
+        autoCal.setChecked(BridgeConfig.prefs(this).getBoolean("auto_calibrate", true));
+        autoCal.setOnCheckedChangeListener((button, enabled) ->
+            BridgeConfig.prefs(this).edit().putBoolean("auto_calibrate", enabled).apply());
+        content.addView(autoCal);
+        content.addView(label("In DJI Virtual Flight tap AUTO CAL on the top-left Bridge overlay. Then return to this setup page to review detected coordinates. If the algorithm cannot find BOTH rings, it keeps the existing manual calibration.", 13));
         CheckBox diagnosticOnly = new CheckBox(this);
         diagnosticOnly.setText("DIAGNOSTIC ONLY (recommended; no live stick injection)");
         diagnosticOnly.setTextColor(MINT);
@@ -169,18 +179,19 @@ public final class BridgeSetupActivity extends Activity {
         TextView tuning = label("TOUCH STICK CALIBRATION (percent of full screen)", 18);
         tuning.setTextColor(MINT);
         content.addView(tuning);
-        content.addView(label("With SHOW CENTER MARKERS enabled, match the L/R crosshairs to the middle of each on-screen joystick. X is horizontal, Y is vertical, percentages of the FULL display.", 13));
+        content.addView(label("The AUTO CAL circle detector determines L and R independently from the current simulator picture. You may also adjust values manually. X/Y are percentages of the landscape screenshot; radii are percentages of its short dimension.", 13));
         numeric(content, "Left center X", "left_x", 5, 45, 16);
         numeric(content, "Left center Y", "left_y", 40, 95, 71);
         numeric(content, "Right center X", "right_x", 55, 95, 85);
         numeric(content, "Right center Y", "right_y", 40, 95, 71);
-        numeric(content, "Stick travel radius", "radius", 4, 25, 25);
+        numeric(content, "Left stick travel radius", "left_radius", 4, 25, 19);
+        numeric(content, "Right stick travel radius", "right_radius", 4, 25, 19);
         numeric(content, "SDK stick maximum", "raw_max", 1, 1500, 660);
         content.addView(button("RESET CENTER COORDINATES TO DEFAULT", () -> {
             BridgeConfig.prefs(this).edit()
                 .putInt("left_x", 16).putInt("left_y", 71)
                 .putInt("right_x", 85).putInt("right_y", 71)
-                .putInt("radius", 25).apply();
+                .putInt("left_radius", 19).putInt("right_radius", 19).apply();
             Toast.makeText(this, "Centers reset. Reopen setup to refresh sliders.",
                 Toast.LENGTH_LONG).show();
         }));
