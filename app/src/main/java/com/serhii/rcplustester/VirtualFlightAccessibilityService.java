@@ -65,6 +65,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private long testGestureUntil;
     private long lastGestureCompletedMs;
     private long largestDispatchGapMs;
+    private int previousWheelSign;
+    private int queuedCameraSteps;
+    private float cameraYPercent = Float.NaN;
+    private String cameraStatus = "camera: idle";
 
     private final BroadcastReceiver inputs = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -83,6 +87,32 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 return;
             }
             if (control == null || detail == null) return;
+            if ("ZOOM_DIAL".equals(control)) {
+                // DJI scroll wheel is a spring-centred -1/0/+1 input.
+                // Count a new detent on transition; never flood touch gestures
+                // while the wheel reports a sustained value.
+                try {
+                    int eq = detail.lastIndexOf('=');
+                    if (eq >= 0) {
+                        float value = Float.parseFloat(detail.substring(eq + 1).trim());
+                        int sign = value > 0.4f ? 1 : value < -0.4f ? -1 : 0;
+                        if (sign != 0 && sign != previousWheelSign &&
+                                BridgeConfig.prefs(VirtualFlightAccessibilityService.this)
+                                    .getBoolean("camera_enabled", false)) {
+                            int direction = BridgeConfig.prefs(VirtualFlightAccessibilityService.this)
+                                .getBoolean("camera_invert", false) ? -sign : sign;
+                            queuedCameraSteps = Math.max(-12, Math.min(12,
+                                queuedCameraSteps + direction));
+                            cameraStatus = "camera: wheel " + sign + " queued=" + queuedCameraSteps;
+                            scheduleFrame();
+                        }
+                        previousWheelSign = sign;
+                    }
+                } catch (NumberFormatException ignored) {
+                    cameraStatus = "camera: invalid dial value";
+                }
+                return;
+            }
             if (!("LS_X".equals(control) || "LS_Y".equals(control) ||
                   "RS_X".equals(control) || "RS_Y".equals(control))) return;
             int eq = detail.lastIndexOf('=');
@@ -218,7 +248,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         // individual finger needs a clean UP event.
         final boolean wantLeft = leftMoving();
         final boolean wantRight = rightMoving();
-        if (!wantLeft && !wantRight && leftStroke == null && rightStroke == null) {
+        final boolean cameraAllowed = BridgeConfig.prefs(this)
+            .getBoolean("camera_enabled", false) &&
+            (BridgeConfig.prefs(this).getBoolean("camera_concurrent", false) ||
+             (!wantLeft && !wantRight && leftStroke == null && rightStroke == null));
+        final int cameraStepSign = cameraAllowed ? Integer.signum(queuedCameraSteps) : 0;
+        if (!wantLeft && !wantRight && leftStroke == null && rightStroke == null
+                && cameraStepSign == 0) {
             gestureResult = "touch: idle (no fingers)";
             return;
         }
@@ -243,6 +279,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
 
         GestureDescription.StrokeDescription nextLeft = null, nextRight = null;
         GestureDescription.Builder builder = new GestureDescription.Builder();
+        float proposedCameraPercent = cameraYPercent;
         try {
             if (wantLeft || leftStroke != null) {
                 float fromX = leftStroke == null ? leftCx : leftX;
@@ -263,6 +300,25 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 builder.addStroke(nextRight);
             }
 
+            if (cameraStepSign != 0) {
+                if (Float.isNaN(cameraYPercent)) {
+                    cameraYPercent = BridgeConfig.number(this, "camera_y", 70);
+                }
+                int low = BridgeConfig.number(this, "camera_top", 50);
+                int high = BridgeConfig.number(this, "camera_bottom", 84);
+                float step = BridgeConfig.number(this, "camera_step", 3);
+                proposedCameraPercent = Math.max(low, Math.min(high,
+                    cameraYPercent + cameraStepSign * step));
+                if (Math.abs(proposedCameraPercent - cameraYPercent) > 0.01f) {
+                    float x = width * BridgeConfig.number(this, "camera_x", 95) / 100f;
+                    Path cameraPath = path(x, height * cameraYPercent / 100f,
+                        x, height * proposedCameraPercent / 100f);
+                    builder.addStroke(new GestureDescription.StrokeDescription(
+                        cameraPath, 0, FRAME_DURATION_MS, false));
+                }
+            }
+
+            final float nextCameraPercent = proposedCameraPercent;
             final GestureDescription.StrokeDescription newLeft = nextLeft;
             final GestureDescription.StrokeDescription newRight = nextRight;
             GestureDescription gesture = builder.build();
@@ -282,13 +338,20 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     rightStroke = wantRight ? newRight : null;
                     if (wantLeft) { leftX = targetLX; leftY = targetLY; }
                     if (wantRight) { rightX = targetRX; rightY = targetRY; }
+                    if (cameraStepSign != 0) {
+                        cameraYPercent = nextCameraPercent;
+                        queuedCameraSteps -= cameraStepSign;
+                        cameraStatus = "camera: slider Y=" + Math.round(cameraYPercent) +
+                            "% remaining=" + queuedCameraSteps;
+                    }
                     busy = false;
                     completedFrames++;
                     gestureResult = "touch: OK " + completedFrames +
                         " (L=" + (wantLeft ? 1 : 0) + " R=" + (wantRight ? 1 : 0) + ")";
                     lastGestureCompletedMs = SystemClock.uptimeMillis();
                     if (active() && (stickMoving() ||
-                            leftStroke != null || rightStroke != null)) continueImmediately();
+                            leftStroke != null || rightStroke != null ||
+                            (cameraAllowed && queuedCameraSteps != 0))) continueImmediately();
                 }
                 @Override public void onCancelled(GestureDescription g) {
                     if (token != generation) return;
@@ -556,6 +619,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 "\n" + sdk + " | " + gestureResult +
                 "\nMode=" + (mode() == 1 ? "LEFT" : mode() == 2 ? "RIGHT" : "BOTH") +
                 " cancel=" + cancelledFrames + " gapMax=" + largestDispatchGapMs + "ms" +
+                "\n" + cameraStatus +
                 " LS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
             if (!diagnostic.contentEquals(debugLabel.getText())) debugLabel.setText(diagnostic);
