@@ -3,6 +3,7 @@ package com.serhii.rcplustester;
 import dji.sdk.keyvalue.key.DJIKeyInfo;
 import dji.sdk.keyvalue.key.KeyTools;
 import dji.sdk.keyvalue.key.RemoteControllerKey;
+import dji.sdk.keyvalue.key.FlightControllerKey;
 import dji.v5.manager.KeyManager;
 
 /** Read-only subscriptions to supported MSDK V5 remote-controller inputs. */
@@ -56,6 +57,32 @@ public final class DjiInputBridge {
             listen(RemoteControllerKey.KeyRecordButtonDown, "RECORD", "RECORD");
             listen(RemoteControllerKey.KeyGoHomeButtonDown, "RTH", "RTH");
             listen(RemoteControllerKey.KeyFiveDimensionPressedStatus, "5D", null);
+            // In MSDK V5, flight-mode switch state is published under FlightControllerKey,
+            // not RemoteControllerKey. Read only: no setValue and no flight commands.
+            // getOnce=true requests an initial hardware read in addition to change events.
+            try {
+                KeyManager.getInstance().listen(
+                    KeyTools.createKey(FlightControllerKey.KeyRemoteControllerFlightMode),
+                    OWNER, true, (previous, current) -> {
+                        if (current != null) {
+                            emit("F_S_N", "MODE_SWITCH", current);
+                        } else {
+                            Sink listener = sink;
+                            if (listener != null) listener.onInput("F_S_N", "SDK:MODE_SWITCH_UNAVAILABLE",
+                                "No mode switch value from SDK (aircraft may be required)", false);
+                        }
+                    });
+                Object cached = KeyManager.getInstance().getValue(
+                    KeyTools.createKey(FlightControllerKey.KeyRemoteControllerFlightMode));
+                if (cached != null) emit("F_S_N", "MODE_SWITCH_CACHE", cached);
+                Sink listener = sink;
+                if (listener != null) listener.onInput("F_S_N", "SDK:MODE_SWITCH_PROBE",
+                    "F/S/N read-only listener attached; move switch through three positions", false);
+            } catch (Throwable switchError) {
+                Sink listener = sink;
+                if (listener != null) listener.onInput("F_S_N", "SDK:MODE_SWITCH_UNAVAILABLE",
+                    "Switch key not available: " + switchError.toString(), false);
+            }
             setStatus("SDK listeners active (actual coverage depends on controller)");
         } catch (Throwable error) {
             started = false;
