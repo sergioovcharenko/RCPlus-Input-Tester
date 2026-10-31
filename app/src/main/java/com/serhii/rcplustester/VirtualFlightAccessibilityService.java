@@ -7,6 +7,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.hardware.HardwareBuffer;
+import android.os.Build;
+import android.view.Display;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -54,7 +58,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private WindowManager windowManager;
     private LinearLayout overlay;
     private View centerMarkers;
-    private Button pairButton, testButton, testBothButton;
+    private Button pairButton, testButton, testBothButton, autoCalButton;
     private TextView debugLabel;
     private String lastSdkMessage = "SDK: waiting";
     private String gestureResult = "touch: idle";
@@ -67,6 +71,9 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private int diagnosticPassed, diagnosticCancelled;
     private String diagnosticResult = "10s diagnostic: not tested";
     private long diagnosticStarted;
+    private long lastCalibrationAt;
+    private boolean calibrationRunning;
+    private String calibrationStatus = "auto-cal: not measured";
     private long lastGestureCompletedMs;
     private long largestDispatchGapMs;
     private int previousWheelSign;
@@ -241,6 +248,12 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             updateOverlay();
             lastOverlayRefresh = now;
         }
+        if (eligibleApp() && active() && !diagnosticActive && !busy
+                && leftStroke == null && rightStroke == null
+                && BridgeConfig.prefs(this).getBoolean("auto_calibrate", true)
+                && now - lastCalibrationAt > 16000L) {
+            captureCenters();
+        }
         if (!active()) {
             if (leftStroke != null || rightStroke != null || busy) stopGesture();
             return;
@@ -288,8 +301,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
         float width = dm.widthPixels, height = dm.heightPixels;
-        float radius = Math.min(width, height) *
-            BridgeConfig.number(this, "radius", 25) / 100f;
+        float lr = Math.min(width, height) *
+            BridgeConfig.number(this, "left_radius", 19) / 100f;
+        float rr = Math.min(width, height) *
+            BridgeConfig.number(this, "right_radius", 19) / 100f;
         float leftCx = width * BridgeConfig.number(this, "left_x", 16) / 100f;
         float leftCy = height * BridgeConfig.number(this, "left_y", 71) / 100f;
         float rightCx = width * BridgeConfig.number(this, "right_x", 85) / 100f;
@@ -297,10 +312,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
 
         // Only move the corresponding virtual joystick. Each finger starts,
         // continues, and ends independently.
-        final float targetLX = wantLeft ? leftCx + norm("LS_X") * radius : leftX;
-        final float targetLY = wantLeft ? leftCy - norm("LS_Y") * radius : leftY;
-        final float targetRX = wantRight ? rightCx + norm("RS_X") * radius : rightX;
-        final float targetRY = wantRight ? rightCy - norm("RS_Y") * radius : rightY;
+        final float targetLX = wantLeft ? leftCx + norm("LS_X") * lr : leftX;
+        final float targetLY = wantLeft ? leftCy - norm("LS_Y") * lr : leftY;
+        final float targetRX = wantRight ? rightCx + norm("RS_X") * rr : rightX;
+        final float targetRY = wantRight ? rightCy - norm("RS_Y") * rr : rightY;
 
         GestureDescription.StrokeDescription nextLeft = null, nextRight = null;
         GestureDescription.Builder builder = new GestureDescription.Builder();
@@ -477,8 +492,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
         float w = dm.widthPixels, h = dm.heightPixels;
-        float radius = Math.min(w, h) *
-            BridgeConfig.number(this, "radius", 25) / 100f;
+        float lr = Math.min(w, h) *
+            BridgeConfig.number(this, "left_radius", 19) / 100f;
+        float rr = Math.min(w, h) *
+            BridgeConfig.number(this, "right_radius", 19) / 100f;
         float lx = w * BridgeConfig.number(this, "left_x", 16) / 100f;
         float ly = h * BridgeConfig.number(this, "left_y", 71) / 100f;
         float rx = w * BridgeConfig.number(this, "right_x", 85) / 100f;
@@ -487,10 +504,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         // for the dual-finger diagnostic, mirror the second finger's travel.
         GestureDescription.Builder b = new GestureDescription.Builder();
         b.addStroke(new GestureDescription.StrokeDescription(
-            path(lx, ly, lx, ly - radius * 0.44f), 0, 10000, false));
+            path(lx, ly, lx, ly - lr * 0.65f), 0, 10000, false));
         if (both) {
             b.addStroke(new GestureDescription.StrokeDescription(
-                path(rx, ry, rx, ry - radius * 0.44f), 0, 10000, false));
+                path(rx, ry, rx, ry - rr * 0.65f), 0, 10000, false));
         }
         diagnosticResult = "10s " + (both ? "DUAL" : "LEFT") + ": running";
         gestureResult = diagnosticResult;
@@ -549,6 +566,110 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         updateOverlay();
     }
 
+    /**
+     * Android 11 screenshot readback. This ONLY measures Unity HUD circles:
+     * a screenshot never becomes a remote flight command.
+     */
+    private void captureCenters() {
+        if (Build.VERSION.SDK_INT < 30 || !active() || calibrationRunning ||
+                diagnosticActive || busy || leftStroke != null || rightStroke != null) {
+            if (!active()) calibrationStatus = "auto-cal: game/SDK not active";
+            return;
+        }
+        calibrationRunning = true;
+        lastCalibrationAt = SystemClock.uptimeMillis();
+        calibrationStatus = "auto-cal: capturing game screenshot";
+        removeCenterMarkers(); // green calibration guides would confuse the ring detector
+        handler.postDelayed(() -> {
+            if (!active()) {
+                calibrationRunning = false;
+                calibrationStatus = "auto-cal: simulator not active";
+                updateCenterMarkers();
+                return;
+            }
+            try {
+                takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+                    @Override public void onSuccess(ScreenshotResult screenshot) {
+                        Bitmap copy = null;
+                        try {
+                            HardwareBuffer hb = screenshot.getHardwareBuffer();
+                            try {
+                                Bitmap image = Bitmap.wrapHardwareBuffer(hb, screenshot.getColorSpace());
+                                if (image != null) copy = image.copy(Bitmap.Config.ARGB_8888, false);
+                            } finally {
+                                hb.close();
+                            }
+                        } catch (Throwable t) {
+                            calibrationStatus = "auto-cal: screenshot read error " +
+                                t.getClass().getSimpleName();
+                            CrashNotes.exception(VirtualFlightAccessibilityService.this,
+                                "Screenshot readback", t);
+                        }
+                        if (copy == null) {
+                            calibrationRunning = false;
+                            updateCenterMarkers();
+                            return;
+                        }
+                        final Bitmap source = copy;
+                        new Thread(() -> {
+                            JoystickScreenDetector.Result result;
+                            try { result = JoystickScreenDetector.detect(source); }
+                            catch (Throwable e) {
+                                result = new JoystickScreenDetector.Result(null,null,
+                                    "analysis failed: " + e.getClass().getSimpleName());
+                            } finally { source.recycle(); }
+                            final JoystickScreenDetector.Result found = result;
+                            handler.post(() -> {
+                                calibrationRunning = false;
+                                if (found.valid()) {
+                                    int lx = Math.round(found.left.x);
+                                    int ly = Math.round(found.left.y);
+                                    int rx = Math.round(found.right.x);
+                                    int ry = Math.round(found.right.y);
+                                    int lr = Math.max(4, Math.min(25,
+                                        Math.round(found.left.radius * .88f)));
+                                    int rr = Math.max(4, Math.min(25,
+                                        Math.round(found.right.radius * .88f)));
+                                    BridgeConfig.prefs(VirtualFlightAccessibilityService.this)
+                                        .edit().putInt("left_x",lx).putInt("left_y",ly)
+                                        .putInt("right_x",rx).putInt("right_y",ry)
+                                        .putInt("left_radius",lr).putInt("right_radius",rr)
+                                        .putString("last_calibration",found.detail).apply();
+                                    calibrationStatus = "CAL OK L="+lx+"/"+ly+" R="+rx+"/"+ry+
+                                        " r="+lr+"/"+rr;
+                                    CrashNotes.record(VirtualFlightAccessibilityService.this,
+                                        "Screen auto-calibration: "+found.detail);
+                                } else {
+                                    calibrationStatus = "CAL NO MATCH - manual values kept";
+                                    CrashNotes.record(VirtualFlightAccessibilityService.this,
+                                        "Screen auto-calibration rejected: "+found.detail);
+                                    BridgeConfig.prefs(VirtualFlightAccessibilityService.this)
+                                        .edit().putString("last_calibration",
+                                            "NOT APPLIED: "+found.detail).apply();
+                                }
+                                updateCenterMarkers();
+                                updateOverlay();
+                            });
+                        }, "vflight-screen-cal").start();
+                    }
+                    @Override public void onFailure(int errorCode) {
+                        calibrationRunning = false;
+                        calibrationStatus = "auto-cal screenshot failed: "+errorCode;
+                        BridgeConfig.prefs(VirtualFlightAccessibilityService.this)
+                            .edit().putString("last_calibration",calibrationStatus).apply();
+                        updateCenterMarkers();
+                        updateOverlay();
+                    }
+                });
+            } catch (Throwable t) {
+                calibrationRunning = false;
+                calibrationStatus = "auto-cal permission/error: "+t.getClass().getSimpleName();
+                CrashNotes.exception(this,"takeScreenshot",t);
+                updateCenterMarkers();
+            }
+        }, 180);
+    }
+
     private void cancelDiagnostic() {
         if (!diagnosticActive) return;
         diagnosticActive = false;
@@ -573,16 +694,18 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             float w = getWidth(), h = getHeight();
-            float radius = Math.min(w, h) *
-                BridgeConfig.number(VirtualFlightAccessibilityService.this, "radius", 25) / 100f;
+            float leftRadius = Math.min(w, h) *
+                BridgeConfig.number(VirtualFlightAccessibilityService.this, "left_radius", 19) / 100f;
+            float rightRadius = Math.min(w, h) *
+                BridgeConfig.number(VirtualFlightAccessibilityService.this, "right_radius", 19) / 100f;
             drawMarker(canvas, "L", w * BridgeConfig.number(
                 VirtualFlightAccessibilityService.this, "left_x", 20) / 100f,
                 h * BridgeConfig.number(VirtualFlightAccessibilityService.this, "left_y", 71) / 100f,
-                radius);
+                leftRadius);
             drawMarker(canvas, "R", w * BridgeConfig.number(
                 VirtualFlightAccessibilityService.this, "right_x", 83) / 100f,
                 h * BridgeConfig.number(VirtualFlightAccessibilityService.this, "right_y", 71) / 100f,
-                radius);
+                rightRadius);
         }
         private void drawMarker(Canvas c, String label, float x, float y, float r) {
             p.setColor(Color.argb(225, 70, 255, 155));
@@ -684,6 +807,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             bothTest.setOnClickListener(v -> testLongGesture(true));
             testBothButton = bothTest;
             buttons.addView(bothTest);
+            Button autoCal = new Button(this);
+            autoCal.setText("AUTO CAL");
+            autoCal.setTextSize(10);
+            autoCal.setAllCaps(false);
+            autoCal.setOnClickListener(v -> captureCenters());
+            autoCalButton = autoCal;
+            buttons.addView(autoCal);
 
             Button stop = new Button(this);
             stop.setText("STOP BRIDGE");
@@ -706,7 +836,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             debugLabel = new TextView(this);
             debugLabel.setTextColor(Color.WHITE);
             debugLabel.setTextSize(11);
-            debugLabel.setMaxLines(9);
+            debugLabel.setMaxLines(11);
             bar.addView(debugLabel);
             WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -728,6 +858,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         if (pairButton != null) pairButton.setVisibility(eligibleApp() ? View.GONE : View.VISIBLE);
         if (testButton != null) testButton.setVisibility(eligibleApp() ? View.VISIBLE : View.GONE);
         if (testBothButton != null) testBothButton.setVisibility(eligibleApp() ? View.VISIBLE : View.GONE);
+        if (autoCalButton != null) autoCalButton.setVisibility(eligibleApp() ? View.VISIBLE : View.GONE);
         if (debugLabel != null) {
             String sdk = lastHeartbeat == 0 ? "waiting for SDK heartbeat" :
                 (SystemClock.uptimeMillis() - lastHeartbeat < 2500 ?
@@ -741,6 +872,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 "\n" + cameraStatus +
                 "\n" + diagnosticResult + " (OK " + diagnosticPassed +
                 ", cancelled " + diagnosticCancelled + ")" +
+                "\n" + calibrationStatus +
                 " LS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
             if (!diagnostic.contentEquals(debugLabel.getText())) debugLabel.setText(diagnostic);
@@ -758,6 +890,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         pairButton = null;
         testButton = null;
         testBothButton = null;
+        autoCalButton = null;
         debugLabel = null;
     }
 }
