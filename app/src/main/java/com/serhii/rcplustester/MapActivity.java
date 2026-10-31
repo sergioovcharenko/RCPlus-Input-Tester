@@ -87,6 +87,17 @@ public final class MapActivity extends Activity {
             addEvent("Last SDK checkpoint: " + last);
         }
     };
+    private void readFsnFromSdk() {
+        if (!bound) {
+            addEvent("SDK: Start DJI SDK first");
+            return;
+        }
+        switchStatus.setText("F/S/N SWITCH: requesting current state from hardware...");
+        addEvent("SDK: Requesting F/S/N async getValue");
+        Intent request = new Intent(SdkProbeService.ACTION_READ_FSN);
+        request.setPackage(getPackageName());
+        sendBroadcast(request);
+    }
     private void startDjiSdk() {
         if (bound) {
             Toast.makeText(this, "DJI SDK is already starting", Toast.LENGTH_SHORT).show();
@@ -163,7 +174,7 @@ public final class MapActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.setFocusableInTouchMode(true);
-        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER 0.3.4", 21, ACCENT));
+        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER 0.3.5", 21, ACCENT));
         root.addView(text("Android + DJI Mobile SDK V5 · read-only diagnostic", 12, WHITE));
 
         LinearLayout toolbar = row();
@@ -174,6 +185,7 @@ public final class MapActivity extends Activity {
             selected = null;
             updateButtons();
         }), new LinearLayout.LayoutParams(0, dp(50), 1));
+        toolbar.addView(action("Read F/S/N", this::readFsnFromSdk), new LinearLayout.LayoutParams(0, dp(50), 1.2f));
         toolbar.addView(action("SDK log", this::showSdkLog), new LinearLayout.LayoutParams(0, dp(50), 1));
         toolbar.addView(action("Copy report", this::copyReport), new LinearLayout.LayoutParams(0, dp(50), 1));
         toolbar.addView(action("Devices", this::refreshDevices), new LinearLayout.LayoutParams(0, dp(50), 1));
@@ -244,7 +256,8 @@ public final class MapActivity extends Activity {
 
     private void capture(String named, String signal, String detail, boolean active) {
         addEvent(signal + "  " + detail);
-        if ("F_S_N".equals(named) && signal.startsWith("SDK:MODE_SWITCH")) {
+        if ("F_S_N".equals(named) && (signal.startsWith("SDK:MODE_SWITCH")
+                || signal.startsWith("SDK:FSN_"))) {
             if (active) {
                 String raw = detail.replaceFirst("^.*? = ", "").trim();
                 switchValues.add(raw);
@@ -316,7 +329,7 @@ public final class MapActivity extends Activity {
            }).show();
     }
     private void copyReport() {
-        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.4\n" + sdkStatus.getText() + "\n");
+        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.5\n" + sdkStatus.getText() + "\n");
         b.append(switchStatus.getText()).append("\n");
         for (String id : IDS) {
             b.append(id).append(": ").append(statuses.get(id));
