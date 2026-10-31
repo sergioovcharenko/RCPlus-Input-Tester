@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: rcplus-android-build
+  group: rcplus-android-v05-final
   cancel-in-progress: true
 jobs:
   build:
