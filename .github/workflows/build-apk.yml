@@ -2,7 +2,7 @@ name: Build RC Plus Input Tester APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'feature/virtual-flight-stick-bridge-01', 'feature/virtual-flight-stick-bridge-02', 'feature/virtual-flight-stick-bridge-03']
+    branches: [main, 'feature/virtual-flight-stick-bridge-01', 'feature/virtual-flight-stick-bridge-02', 'feature/virtual-flight-stick-bridge-03', 'feature/virtual-flight-stick-bridge-04'
 permissions:
   contents: read
 concurrency:
@@ -59,7 +59,7 @@ jobs:
         if: ${{ env.DJI_APP_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: RCPlus-Virtual-Flight-Bridge-0.3-debug
+          name: RCPlus-Virtual-Flight-Bridge-0.4-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
