@@ -147,8 +147,10 @@ public final class BridgeSetupActivity extends Activity {
         packageInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                // We deliberately support only the verified simulator package.
+                // A past accidental pairing of Android launcher caused false status.
                 BridgeConfig.prefs(BridgeSetupActivity.this).edit()
-                    .putString("target", s.toString()).apply();
+                    .putString("target", BridgeConfig.TARGET_DEFAULT).apply();
                 updateState();
             }
             @Override public void afterTextChanged(Editable s) {}
