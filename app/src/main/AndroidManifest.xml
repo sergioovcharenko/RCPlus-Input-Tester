@@ -1,17 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <queries><package android:name="com.dji.virtual_flight"/></queries>
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
   <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
-  <application android:name=".MyApplication" android:label="RC Plus Input Map 0.3.1"
+  <application android:name=".MyApplication" android:label="Virtual Flight Bridge 0.1"
     android:theme="@android:style/Theme.Material.NoActionBar"
     android:allowBackup="false" android:extractNativeLibs="true">
     <meta-data android:name="com.dji.sdk.API_KEY" android:value="${djiApiKey}"/>
     <service android:name=".SdkProbeService" android:process=":sdk" android:exported="false"/>
+    <service android:name=".VirtualFlightAccessibilityService"
+      android:label="Virtual Flight Stick Bridge"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService"/>
+      </intent-filter>
+      <meta-data android:name="android.accessibilityservice"
+        android:resource="@xml/virtual_flight_accessibility"/>
+    </service>
     <activity android:name=".MapActivity" android:exported="true" android:screenOrientation="landscape">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
