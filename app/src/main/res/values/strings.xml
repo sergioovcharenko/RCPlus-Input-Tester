@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bridge_accessibility_description">Simulator only: turn physical DJI RC Plus 2 stick input into virtual touches in DJI Virtual Flight. Requires explicit arming. Red STOP BRIDGE overlay cancels control. Does not control aircraft.</string>
+</resources>
