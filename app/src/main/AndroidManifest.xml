@@ -24,6 +24,8 @@
       <meta-data android:name="android.accessibilityservice"
         android:resource="@xml/virtual_flight_accessibility"/>
     </service>
+    <activity android:name=".BridgeSetupActivity"
+      android:exported="false" android:screenOrientation="landscape"/>
     <activity android:name=".MapActivity" android:exported="true" android:screenOrientation="landscape">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
