@@ -717,7 +717,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             p.setColor(Color.argb(225, 70, 255, 155));
             p.setStrokeWidth(3f);
             p.setStyle(Paint.Style.STROKE);
-            c.drawCircle(x, y, Math.max(10f, r * 0.25f), p);
+            // Draw the full detected joystick travel ring, not an arbitrary
+            // 25% mini-ring, so the user can verify screen alignment visually.
+            c.drawCircle(x, y, Math.max(10f, r), p);
+            c.drawCircle(x, y, 10f, p);
             c.drawLine(x - 24, y, x + 24, y, p);
             c.drawLine(x, y - 24, x, y + 24, p);
             p.setStyle(Paint.Style.FILL);
