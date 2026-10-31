@@ -563,8 +563,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             pair.setTextSize(10);
             pair.setAllCaps(false);
             pair.setOnClickListener(v -> {
-                if (foregroundPackage.isEmpty() ||
-                    foregroundPackage.equals(getPackageName())) return;
+                if (!BridgeConfig.TARGET_DEFAULT.equals(foregroundPackage)) {
+                    cameraStatus = "Pair only official DJI Virtual Flight";
+                    return;
+                }
                 // Explicit user click binds the currently visible simulator package.
                 BridgeConfig.prefs(this).edit().putString("target", foregroundPackage).apply();
                 gestureResult = "Paired: " + foregroundPackage;
