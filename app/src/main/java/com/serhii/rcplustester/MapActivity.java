@@ -174,7 +174,7 @@ public final class MapActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.setFocusableInTouchMode(true);
-        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER 0.3.5", 21, ACCENT));
+        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER / FLIGHT BRIDGE 0.1", 21, ACCENT));
         root.addView(text("Android + DJI Mobile SDK V5 · read-only diagnostic", 12, WHITE));
 
         LinearLayout toolbar = row();
@@ -191,6 +191,9 @@ public final class MapActivity extends Activity {
         toolbar.addView(action("Devices", this::refreshDevices), new LinearLayout.LayoutParams(0, dp(50), 1));
         toolbar.addView(action("Reset", this::confirmReset), new LinearLayout.LayoutParams(0, dp(50), 1));
         root.addView(toolbar);
+        root.addView(action("VIRTUAL FLIGHT STICK BRIDGE  →  SETUP", () ->
+            startActivity(new Intent(this, BridgeSetupActivity.class)));
+
 
         sdkStatus = text("DJI SDK: OFF (safe mode)", 13, ACCENT);
         root.addView(sdkStatus);
