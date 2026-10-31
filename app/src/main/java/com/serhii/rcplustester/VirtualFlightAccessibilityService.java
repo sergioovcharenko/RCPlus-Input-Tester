@@ -720,7 +720,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         }
     }
     private void updateCenterMarkers() {
-        boolean show = eligibleApp() &&
+        boolean show = eligibleApp() && !calibrationRunning &&
             BridgeConfig.prefs(this).getBoolean("show_centers", true);
         if (!show) {
             removeCenterMarkers();
