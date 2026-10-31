@@ -613,7 +613,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                         final Bitmap source = copy;
                         new Thread(() -> {
                             JoystickScreenDetector.Result result;
-                            try { result = JoystickScreenDetector.detect(source); }
+                            try { result = JoystickScreenDetector.detect(source,
+                                BridgeConfig.number(VirtualFlightAccessibilityService.this,"left_x",16),
+                                BridgeConfig.number(VirtualFlightAccessibilityService.this,"left_y",71),
+                                BridgeConfig.number(VirtualFlightAccessibilityService.this,"right_x",85),
+                                BridgeConfig.number(VirtualFlightAccessibilityService.this,"right_y",71),
+                                BridgeConfig.number(VirtualFlightAccessibilityService.this,"left_radius",19),
+                                BridgeConfig.number(VirtualFlightAccessibilityService.this,"right_radius",19)); }
                             catch (Throwable e) {
                                 result = new JoystickScreenDetector.Result(null,null,
                                     "analysis failed: " + e.getClass().getSimpleName());
