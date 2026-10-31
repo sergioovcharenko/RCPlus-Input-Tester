@@ -2,7 +2,7 @@ name: Build RC Plus Input Tester APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'feature/virtual-flight-stick-bridge-01', 'feature/virtual-flight-stick-bridge-02', 'feature/virtual-flight-stick-bridge-03', 'feature/virtual-flight-stick-bridge-04'
+    branches: [main, 'feature/virtual-flight-stick-bridge-01', 'feature/virtual-flight-stick-bridge-02', 'feature/virtual-flight-stick-bridge-03', 'feature/virtual-flight-stick-bridge-04']
 permissions:
   contents: read
 concurrency:
