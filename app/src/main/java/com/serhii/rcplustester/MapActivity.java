@@ -45,7 +45,7 @@ public final class MapActivity extends Activity {
         "C1","C2","C3","C4","L1","L2","L3","R1","R2","R3",
         "5D_UP","5D_DOWN","5D_LEFT","5D_RIGHT","5D_CENTER",
         "LS_X","LS_Y","RS_X","RS_Y","LEFT_DIAL","RIGHT_DIAL","ZOOM_DIAL",
-        "SHUTTER","RECORD","RTH","PAUSE","BACK","MODE"
+        "SHUTTER","RECORD","RTH","PAUSE","BACK","MODE","F_S_N"
     };
     private final LinkedHashMap<String, Button> buttons = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> statuses = new LinkedHashMap<>();
@@ -53,7 +53,8 @@ public final class MapActivity extends Activity {
     private final LinkedHashMap<Integer, Float> axisLast = new LinkedHashMap<>();
     private final ArrayDeque<String> events = new ArrayDeque<>();
     private final SimpleDateFormat clock = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-    private TextView instruction, lastEvent, log, sdkStatus, counts, deviceList;
+    private TextView instruction, lastEvent, log, sdkStatus, counts, deviceList, switchStatus;
+    private final java.util.LinkedHashSet<String> switchValues = new java.util.LinkedHashSet<>();
     private String selected;
     private boolean bound;
     private final BroadcastReceiver sdkEvents = new BroadcastReceiver() {
@@ -162,7 +163,7 @@ public final class MapActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.setFocusableInTouchMode(true);
-        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER 0.3", 21, ACCENT));
+        root.addView(text("DJI RC PLUS 2  ·  INPUT TESTER 0.3.4", 21, ACCENT));
         root.addView(text("Android + DJI Mobile SDK V5 · read-only diagnostic", 12, WHITE));
 
         LinearLayout toolbar = row();
@@ -181,6 +182,8 @@ public final class MapActivity extends Activity {
 
         sdkStatus = text("DJI SDK: OFF (safe mode)", 13, ACCENT);
         root.addView(sdkStatus);
+        switchStatus = text("F/S/N SWITCH: no SDK value yet. Aircraft may be required.", 13, ACCENT);
+        root.addView(switchStatus);
         instruction = text("Tap a control on the left, then press the physical button or move the stick.", 14, WHITE);
         instruction.setBackgroundColor(PANEL);
         root.addView(instruction);
@@ -241,6 +244,17 @@ public final class MapActivity extends Activity {
 
     private void capture(String named, String signal, String detail, boolean active) {
         addEvent(signal + "  " + detail);
+        if ("F_S_N".equals(named) && signal.startsWith("SDK:MODE_SWITCH")) {
+            if (active) {
+                String raw = detail.replaceFirst("^.*? = ", "").trim();
+                switchValues.add(raw);
+                switchStatus.setText("F/S/N SWITCH: SDK=" + raw
+                    + " | distinct values=" + switchValues.size() + " | " + switchValues
+                    + " (raw SDK modes; physical position mapping unverified)");
+            } else {
+                switchStatus.setText("F/S/N SWITCH: " + detail);
+            }
+        }
         if (!active) return;
         String target = named != null && buttons.containsKey(named) ? named : selected;
         if (target != null) {
@@ -302,7 +316,8 @@ public final class MapActivity extends Activity {
            }).show();
     }
     private void copyReport() {
-        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.2\n" + sdkStatus.getText() + "\n");
+        StringBuilder b = new StringBuilder("RC Plus Input Tester 0.3.4\n" + sdkStatus.getText() + "\n");
+        b.append(switchStatus.getText()).append("\n");
         for (String id : IDS) {
             b.append(id).append(": ").append(statuses.get(id));
             if (captured.containsKey(id)) b.append(" | ").append(captured.get(id));
@@ -320,7 +335,8 @@ public final class MapActivity extends Activity {
           .setNegativeButton("Cancel", null)
           .setPositiveButton("Clear", (dialog, which) -> {
             for (String id : IDS) statuses.put(id, "UNTESTED");
-            captured.clear(); events.clear(); axisLast.clear(); selected = null;
+            captured.clear(); events.clear(); axisLast.clear(); switchValues.clear(); selected = null;
+            switchStatus.setText("F/S/N SWITCH: no SDK value yet. Aircraft may be required.");
             lastEvent.setText("Awaiting input..."); log.setText("No events yet"); updateButtons();
           }).show();
     }
