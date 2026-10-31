@@ -2,6 +2,9 @@ package com.serhii.rcplustester;
 
 import android.app.Service;
 import android.content.Intent;
+import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.os.Binder;
 import android.os.IBinder;
 import dji.v5.common.error.IDJIError;
@@ -15,11 +18,19 @@ import dji.v5.manager.interfaces.SDKManagerCallback;
  */
 public final class SdkProbeService extends Service {
     public static final String ACTION_EVENT = "com.serhii.rcplustester.DJI_SDK_EVENT";
+    public static final String ACTION_READ_FSN = "com.serhii.rcplustester.READ_FSN";
     public static final String EXTRA_CONTROL = "control";
     public static final String EXTRA_SIGNAL = "signal";
     public static final String EXTRA_DETAIL = "detail";
     public static final String EXTRA_PRESSED = "pressed";
     private final IBinder binder = new Binder();
+    private final BroadcastReceiver probeReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!ACTION_READ_FSN.equals(intent.getAction())) return;
+            CrashNotes.record(SdkProbeService.this, "UI requested explicit F/S/N SDK getValue");
+            DjiInputBridge.probeFlightMode();
+        }
+    };
 
     private void broadcast(String control, String signal, String detail, boolean pressed) {
         Intent i = new Intent(ACTION_EVENT);
@@ -37,6 +48,7 @@ public final class SdkProbeService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         CrashNotes.record(this, "SDK_SERVICE onCreate");
+        registerReceiver(probeReceiver, new IntentFilter(ACTION_READ_FSN));
         DjiInputBridge.attach((control, signal, detail, pressed) -> broadcast(control, signal, detail, pressed));
         status("DJI SDK is starting in isolated process...");
         try {
@@ -77,6 +89,7 @@ public final class SdkProbeService extends Service {
     }
     @Override public IBinder onBind(Intent intent) { return binder; }
     @Override public void onDestroy() {
+        try { unregisterReceiver(probeReceiver); } catch (Exception ignored) {}
         DjiInputBridge.detach();
         super.onDestroy();
     }
