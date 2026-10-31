@@ -252,7 +252,21 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             .getBoolean("camera_enabled", false) &&
             (BridgeConfig.prefs(this).getBoolean("camera_concurrent", false) ||
              (!wantLeft && !wantRight && leftStroke == null && rightStroke == null));
-        final int cameraStepSign = cameraAllowed ? Integer.signum(queuedCameraSteps) : 0;
+        int nextStep = cameraAllowed ? Integer.signum(queuedCameraSteps) : 0;
+        if (nextStep != 0) {
+            float current = Float.isNaN(cameraYPercent) ?
+                BridgeConfig.number(this, "camera_y", 70) : cameraYPercent;
+            int low = BridgeConfig.number(this, "camera_top", 50);
+            int high = BridgeConfig.number(this, "camera_bottom", 84);
+            float proposed = Math.max(low, Math.min(high,
+                current + nextStep * BridgeConfig.number(this, "camera_step", 3)));
+            if (Math.abs(proposed - current) < 0.01f) {
+                queuedCameraSteps -= nextStep;
+                cameraStatus = "camera: at slider travel limit";
+                nextStep = 0;
+            }
+        }
+        final int cameraStepSign = nextStep;
         if (!wantLeft && !wantRight && leftStroke == null && rightStroke == null
                 && cameraStepSign == 0) {
             gestureResult = "touch: idle (no fingers)";
