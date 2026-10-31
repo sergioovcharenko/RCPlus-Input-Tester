@@ -94,7 +94,9 @@ public final class BridgeSetupActivity extends Activity {
         if (state == null) return;
         state.setText("Accessibility: " + (accessibilityEnabled() ? "ON" : "OFF") +
             "     Bridge armed: " + (BridgeConfig.armed(this) ? "YES" : "NO") +
-            "\nTarget application: " + BridgeConfig.target(this));
+            "\nTarget application: " + BridgeConfig.target(this) +
+            "\nLast bridge stop: " + BridgeConfig.prefs(this).getString(
+                "last_stop_reason", "No automatic stop recorded"));
     }
     @Override public void onCreate(Bundle stateBundle) {
         super.onCreate(stateBundle);
@@ -104,7 +106,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.3", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.4", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -119,7 +121,22 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("Open DJI Virtual Flight. If NOT PAIRED tap PAIR APP. In v0.3 neutral sticks generate NO touches; while moving, touch updates are limited to 4Hz. Red STOP BRIDGE stops all virtual control.", 13));
+        content.addView(label("v0.4: LEFT and RIGHT fingers are independent. Begin with LEFT ONLY, then RIGHT ONLY. Select BOTH only after single-stick tests. Red STOP BRIDGE stops the adapter.", 13));
+        TextView touchTitle = label("CONTROL TEST MODE", 18);
+        touchTitle.setTextColor(MINT);
+        content.addView(touchTitle);
+        row(content,
+            button("LEFT ONLY", () -> setMode(1)),
+            button("RIGHT ONLY", () -> setMode(2)));
+        content.addView(button("BOTH STICKS (after separate tests)", () -> setMode(3)));
+        content.addView(label("Mode: LEFT ONLY is the initial default. If you already used an older version, choose it here before testing.", 13));
+        CheckBox centers = new CheckBox(this);
+        centers.setText("SHOW CENTER MARKERS (L/R crosshairs on simulator)");
+        centers.setTextColor(TEXT);
+        centers.setChecked(BridgeConfig.prefs(this).getBoolean("show_centers", true));
+        centers.setOnCheckedChangeListener((button, checked) ->
+            BridgeConfig.prefs(this).edit().putBoolean("show_centers", checked).apply());
+        content.addView(centers);
         content.addView(label("SIMULATOR PACKAGE (change only if the installed variant differs):", 14));
         packageInput = new EditText(this);
         packageInput.setText(BridgeConfig.target(this));
@@ -139,13 +156,21 @@ public final class BridgeSetupActivity extends Activity {
         TextView tuning = label("TOUCH STICK CALIBRATION (percent of full screen)", 18);
         tuning.setTextColor(MINT);
         content.addView(tuning);
-        content.addView(label("Defaults estimated from your photo: left ~20% / 71%, right ~83% / 71%. Change positions if touches miss the joystick circles.", 13));
+        content.addView(label("With SHOW CENTER MARKERS enabled, match the L/R crosshairs to the middle of each on-screen joystick. X is horizontal, Y is vertical, percentages of the FULL display.", 13));
         numeric(content, "Left center X", "left_x", 5, 45, 20);
         numeric(content, "Left center Y", "left_y", 40, 95, 71);
         numeric(content, "Right center X", "right_x", 55, 95, 83);
         numeric(content, "Right center Y", "right_y", 40, 95, 71);
         numeric(content, "Stick travel radius", "radius", 4, 25, 12);
         numeric(content, "SDK stick maximum", "raw_max", 1, 1500, 660);
+        content.addView(button("RESET CENTER COORDINATES TO DEFAULT", () -> {
+            BridgeConfig.prefs(this).edit()
+                .putInt("left_x", 20).putInt("left_y", 71)
+                .putInt("right_x", 83).putInt("right_y", 71)
+                .putInt("radius", 12).apply();
+            Toast.makeText(this, "Centers reset. Reopen setup to refresh sliders.",
+                Toast.LENGTH_LONG).show();
+        }));
         TextView direction = label("REVERSE AXIS DIRECTION IF NECESSARY", 18);
         direction.setTextColor(MINT);
         content.addView(direction);
@@ -159,6 +184,12 @@ public final class BridgeSetupActivity extends Activity {
         super.onResume();
         updateState();
     }
+    private void setMode(int mode) {
+        BridgeConfig.prefs(this).edit().putInt("touch_mode", mode).apply();
+        String label = mode == 1 ? "LEFT ONLY" : mode == 2 ? "RIGHT ONLY" : "BOTH STICKS";
+        Toast.makeText(this, "Touch mode: " + label, Toast.LENGTH_SHORT).show();
+        updateState();
+    }
     private void startBridge() {
         if (!accessibilityEnabled()) {
             Toast.makeText(this, "Enable Virtual Flight Stick Bridge in Accessibility settings first",
@@ -166,6 +197,7 @@ public final class BridgeSetupActivity extends Activity {
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
             return;
         }
+        BridgeConfig.prefs(this).edit().putString("last_stop_reason", "Bridge started manually").apply();
         BridgeConfig.setArmed(this, true);
         Intent i = new Intent(this, SdkProbeService.class);
         i.setAction(SdkProbeService.ACTION_BRIDGE_START);
@@ -181,6 +213,7 @@ public final class BridgeSetupActivity extends Activity {
         updateState();
     }
     private void stopBridge() {
+        BridgeConfig.prefs(this).edit().putString("last_stop_reason", "Stopped by user").apply();
         BridgeConfig.setArmed(this, false);
         Intent i = new Intent(this, SdkProbeService.class);
         i.setAction(SdkProbeService.ACTION_BRIDGE_STOP);
