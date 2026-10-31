@@ -96,7 +96,9 @@ public final class BridgeSetupActivity extends Activity {
             "     Bridge armed: " + (BridgeConfig.armed(this) ? "YES" : "NO") +
             "\nTarget application: " + BridgeConfig.target(this) +
             "\nLast bridge stop: " + BridgeConfig.prefs(this).getString(
-                "last_stop_reason", "No automatic stop recorded"));
+                "last_stop_reason", "No automatic stop recorded") +
+            "\nLong gesture result: " + BridgeConfig.prefs(this).getString(
+                "last_diagnostic_result", "Not tested yet"));
     }
     @Override public void onCreate(Bundle stateBundle) {
         super.onCreate(stateBundle);
@@ -106,7 +108,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.5.1", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.6 TEST", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -121,7 +123,15 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("v0.5.1: fixes NOT PAIRED regression on DJI RC Plus 2. If the overlay identifies com.android.launcher3 while Virtual Flight is visible, choose the compatibility mode below. Use only inside the simulator; press STOP BRIDGE before leaving it.", 13));
+        content.addView(label("v0.6 TEST: diagnostic build, not verified for flight. In Virtual Flight use TEST 10s L first, then TEST 10s 2X. Each test sends a single uninterrupted 10-second gesture. Live physical stick mapping from 0.5.1 is experimental and OFF by default.", 13));
+        CheckBox diagnosticOnly = new CheckBox(this);
+        diagnosticOnly.setText("DIAGNOSTIC ONLY (recommended; no live stick injection)");
+        diagnosticOnly.setTextColor(MINT);
+        diagnosticOnly.setChecked(BridgeConfig.prefs(this).getBoolean("diagnostic_only", true));
+        diagnosticOnly.setOnCheckedChangeListener((button, enabled) ->
+            BridgeConfig.prefs(this).edit().putBoolean("diagnostic_only", enabled).apply());
+        content.addView(diagnosticOnly);
+        content.addView(label("TEST 10s L and TEST 10s 2X appear on the top-left in-game overlay after START BRIDGE. Do not touch the screen during either test. Wait for COMPLETED or CANCELLED to appear, then return here to read the saved result.", 13));
         TextView touchTitle = label("CONTROL TEST MODE", 18);
         touchTitle.setTextColor(MINT);
         content.addView(touchTitle);
@@ -129,7 +139,7 @@ public final class BridgeSetupActivity extends Activity {
             button("LEFT ONLY", () -> setMode(1)),
             button("RIGHT ONLY", () -> setMode(2)));
         content.addView(button("BOTH STICKS (after separate tests)", () -> setMode(3)));
-        content.addView(label("For motor-arm simulation select BOTH STICKS; single-stick modes intentionally ignore the other stick. To diagnose independent axes, test LEFT ONLY and RIGHT ONLY separately.", 13));
+        content.addView(label("BOTH STICKS is for the old experimental live mode only. In diagnostic-only mode the physical sticks are read but never injected; use the 10-second on-screen test buttons.", 13));
         CheckBox centers = new CheckBox(this);
         centers.setText("SHOW CENTER MARKERS (L/R crosshairs on simulator)");
         centers.setTextColor(TEXT);
