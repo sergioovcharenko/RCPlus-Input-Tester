@@ -192,7 +192,7 @@ public final class MapActivity extends Activity {
         toolbar.addView(action("Reset", this::confirmReset), new LinearLayout.LayoutParams(0, dp(50), 1));
         root.addView(toolbar);
         root.addView(action("VIRTUAL FLIGHT STICK BRIDGE  →  SETUP", () ->
-            startActivity(new Intent(this, BridgeSetupActivity.class)));
+            startActivity(new Intent(this, BridgeSetupActivity.class))));
 
 
         sdkStatus = text("DJI SDK: OFF (safe mode)", 13, ACCENT);
