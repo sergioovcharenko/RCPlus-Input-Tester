@@ -104,7 +104,7 @@ public final class BridgeSetupActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundColor(BG);
         scroll.addView(content);
-        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.1", 23);
+        TextView headline = label("DJI VIRTUAL FLIGHT  ·  STICK BRIDGE 0.2", 23);
         headline.setTextColor(MINT);
         content.addView(headline);
         content.addView(label("EXPERIMENTAL · Touch control of the ORIGINAL DJI Virtual Flight. No real drone, MAVLink or radio output. Turn on only in the simulator.", 14));
@@ -119,7 +119,7 @@ public final class BridgeSetupActivity extends Activity {
         row(content,
             button("STOP BRIDGE", this::stopBridge),
             button("3. Open Virtual Flight", this::openVirtualFlight));
-        content.addView(label("On the simulator screen, a red STOP BRIDGE button appears in the top-left corner. Use it to stop all virtual touches.", 13));
+        content.addView(label("Open DJI Virtual Flight. A small panel should appear at top-left. If it says NOT PAIRED, tap PAIR APP. Then try TEST TOUCH. Red STOP BRIDGE stops virtual control.", 13));
         content.addView(label("SIMULATOR PACKAGE (change only if the installed variant differs):", 14));
         packageInput = new EditText(this);
         packageInput.setText(BridgeConfig.target(this));
@@ -193,7 +193,7 @@ public final class BridgeSetupActivity extends Activity {
         Intent launch = getPackageManager().getLaunchIntentForPackage(target);
         if (launch == null) {
             Toast.makeText(this, "Simulator package not found: " + target +
-                ". Check installed package name.", Toast.LENGTH_LONG).show();
+                ". Open DJI Virtual Flight manually, then tap PAIR APP on the overlay.", Toast.LENGTH_LONG).show();
             return;
         }
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
