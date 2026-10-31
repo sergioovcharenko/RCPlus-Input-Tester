@@ -7,6 +7,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.os.Handler;
@@ -51,6 +53,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private float leftX, leftY, rightX, rightY;
     private WindowManager windowManager;
     private LinearLayout overlay;
+    private View centerMarkers;
     private Button pairButton, testButton;
     private TextView debugLabel;
     private String lastSdkMessage = "SDK: waiting";
@@ -382,12 +385,78 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         scheduleFrame();
     }
 
+
+    private final class MarkerView extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        MarkerView(Context context) { super(context); setWillNotDraw(false); }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth(), h = getHeight();
+            float radius = Math.min(w, h) *
+                BridgeConfig.number(VirtualFlightAccessibilityService.this, "radius", 12) / 100f;
+            drawMarker(canvas, "L", w * BridgeConfig.number(
+                VirtualFlightAccessibilityService.this, "left_x", 20) / 100f,
+                h * BridgeConfig.number(VirtualFlightAccessibilityService.this, "left_y", 71) / 100f,
+                radius);
+            drawMarker(canvas, "R", w * BridgeConfig.number(
+                VirtualFlightAccessibilityService.this, "right_x", 83) / 100f,
+                h * BridgeConfig.number(VirtualFlightAccessibilityService.this, "right_y", 71) / 100f,
+                radius);
+        }
+        private void drawMarker(Canvas c, String label, float x, float y, float r) {
+            p.setColor(Color.argb(225, 70, 255, 155));
+            p.setStrokeWidth(3f);
+            p.setStyle(Paint.Style.STROKE);
+            c.drawCircle(x, y, Math.max(10f, r * 0.25f), p);
+            c.drawLine(x - 24, y, x + 24, y, p);
+            c.drawLine(x, y - 24, x, y + 24, p);
+            p.setStyle(Paint.Style.FILL);
+            p.setTextSize(26f);
+            c.drawText(label, x + 18, y - 18, p);
+        }
+    }
+    private void updateCenterMarkers() {
+        boolean show = eligibleApp() &&
+            BridgeConfig.prefs(this).getBoolean("show_centers", true);
+        if (!show) {
+            removeCenterMarkers();
+            return;
+        }
+        if (centerMarkers != null) {
+            centerMarkers.invalidate();
+            return;
+        }
+        try {
+            MarkerView view = new MarkerView(this);
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+            params.gravity = Gravity.TOP | Gravity.LEFT;
+            windowManager.addView(view, params);
+            centerMarkers = view;
+        } catch (Throwable t) {
+            CrashNotes.record(this, "Cannot show calibration markers: " + t);
+        }
+    }
+    private void removeCenterMarkers() {
+        if (centerMarkers == null) return;
+        try { windowManager.removeView(centerMarkers); } catch (Throwable ignored) {}
+        centerMarkers = null;
+    }
+
     private void updateOverlay() {
         if (!BridgeConfig.armed(this) || foregroundPackage.isEmpty() ||
                 foregroundPackage.equals(getPackageName()) || windowManager == null) {
             removeOverlay();
             return;
         }
+        updateCenterMarkers();
         if (overlay == null) {
             LinearLayout bar = new LinearLayout(this);
             bar.setOrientation(LinearLayout.VERTICAL);
@@ -429,6 +498,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             stop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 Color.rgb(175, 45, 45)));
             stop.setOnClickListener(v -> {
+                BridgeConfig.prefs(this).edit().putString("last_stop_reason", "Stopped with red STOP button").apply();
                 BridgeConfig.setArmed(this, false);
                 stopGesture();
                 removeOverlay();
@@ -476,9 +546,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     }
 
     private void removeOverlay() {
-        if (overlay == null) return;
+        if (overlay == null) {
+            removeCenterMarkers();
+            return;
+        }
         try { windowManager.removeView(overlay); } catch (Throwable ignored) {}
         overlay = null;
+        removeCenterMarkers();
         pairButton = null;
         testButton = null;
         debugLabel = null;
