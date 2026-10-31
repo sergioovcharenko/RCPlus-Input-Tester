@@ -35,6 +35,12 @@ import java.util.Map;
  */
 public final class VirtualFlightAccessibilityService extends AccessibilityService {
     private static final String TAG = "VFlightBridge";
+    // A maximum of four 2-stick touch frames per second when sticks are moving.
+    // At neutral, no synthetic touches are generated.
+    private static final int FRAME_DURATION_MS = 250;
+    private static final float STICK_DEADZONE = 0.065f;
+    private static final int CANCEL_LIMIT = 12;
+    private static final long CANCEL_WINDOW_MS = 10000;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, Float> axes = new HashMap<>();
     private String foregroundPackage = "";
@@ -50,7 +56,9 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private String lastSdkMessage = "SDK: waiting";
     private String gestureResult = "touch: idle";
     private int completedFrames, cancelledFrames;
-    private boolean testRequested;
+    private long cancelWindowStarted;
+    private int recentCancels;
+    private long lastOverlayRefresh;
 
     private final BroadcastReceiver inputs = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -155,8 +163,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         return v == null ? 0f : v;
     }
     private float norm(String key) {
-        return BridgeConfig.norm(raw(key), BridgeConfig.scale(this),
+        float value = BridgeConfig.norm(raw(key), BridgeConfig.scale(this),
             BridgeConfig.invert(this, key));
+        return Math.abs(value) < STICK_DEADZONE ? 0f : value;
+    }
+    private boolean stickMoving() {
+        return norm("LS_X") != 0f || norm("LS_Y") != 0f ||
+            norm("RS_X") != 0f || norm("RS_Y") != 0f;
     }
 
     private static Path path(float fromX, float fromY, float toX, float toY) {
@@ -167,9 +180,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     }
 
     private void frame() {
-        updateOverlay();
-        if (!active()) {
-            stopGesture();
+        if (SystemClock.uptimeMillis() - lastOverlayRefresh > 350) {
+            updateOverlay();
+            lastOverlayRefresh = SystemClock.uptimeMillis();
+        }
+        if (!active() || !stickMoving()) {
+            if (leftStroke != null || rightStroke != null || busy) stopGesture();
+            if (eligibleApp()) gestureResult = "touch: idle (no synthetic input)";
             return;
         }
         if (busy) return;
@@ -178,7 +195,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         float width = dm.widthPixels, height = dm.heightPixels;
         float radius = Math.min(width, height) *
             BridgeConfig.number(this, "radius", 12) / 100f;
-        float leftCx = width * BridgeConfig.number(this, "left_x", 17) / 100f;
+        float leftCx = width * BridgeConfig.number(this, "left_x", 20) / 100f;
         float leftCy = height * BridgeConfig.number(this, "left_y", 71) / 100f;
         float rightCx = width * BridgeConfig.number(this, "right_x", 83) / 100f;
         float rightCy = height * BridgeConfig.number(this, "right_y", 71) / 100f;
@@ -198,11 +215,11 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             Path lpath = path(fromLX, fromLY, targetLX, targetLY);
             Path rpath = path(fromRX, fromRY, targetRX, targetRY);
             GestureDescription.StrokeDescription nextLeft = leftStroke == null
-                ? new GestureDescription.StrokeDescription(lpath, 0, 135, true)
-                : leftStroke.continueStroke(lpath, 0, 135, true);
+                ? new GestureDescription.StrokeDescription(lpath, 0, FRAME_DURATION_MS, true)
+                : leftStroke.continueStroke(lpath, 0, FRAME_DURATION_MS, true);
             GestureDescription.StrokeDescription nextRight = rightStroke == null
-                ? new GestureDescription.StrokeDescription(rpath, 0, 135, true)
-                : rightStroke.continueStroke(rpath, 0, 135, true);
+                ? new GestureDescription.StrokeDescription(rpath, 0, FRAME_DURATION_MS, true)
+                : rightStroke.continueStroke(rpath, 0, FRAME_DURATION_MS, true);
             GestureDescription gesture = new GestureDescription.Builder()
                 .addStroke(nextLeft).addStroke(nextRight).build();
             busy = true;
@@ -220,7 +237,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     busy = false;
                     completedFrames++;
                     gestureResult = "touch: OK (" + completedFrames + " frames)";
-                    scheduleFrame();
+                    if (active() && stickMoving()) scheduleFrame();
+                    else stopGesture();
                 }
                 @Override public void onCancelled(GestureDescription g) {
                     if (token != generation) return;
@@ -230,7 +248,9 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     cancelledFrames++;
                     gestureResult = "touch: CANCELLED (" + cancelledFrames + ")";
                     Log.w(TAG, "Gesture cancelled by Android or user input");
-                    handler.postDelayed(() -> scheduleFrame(), 150);
+                    onGestureCancel();
+                    if (BridgeConfig.armed(VirtualFlightAccessibilityService.this) &&
+                        stickMoving()) handler.postDelayed(() -> scheduleFrame(), 500);
                 }
             }, handler);
             if (!accepted) {
@@ -239,7 +259,9 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 rightStroke = null;
                 gestureResult = "touch: dispatchGesture returned false";
                 Log.w(TAG, "Android rejected bridge gesture");
-                handler.postDelayed(() -> scheduleFrame(), 250);
+                onGestureCancel();
+                if (BridgeConfig.armed(this) && stickMoving())
+                    handler.postDelayed(() -> scheduleFrame(), 500);
             }
         } catch (Throwable t) {
             busy = false;
@@ -247,6 +269,23 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             rightStroke = null;
             gestureResult = "touch: exception " + t.getClass().getSimpleName();
             Log.e(TAG, "Gesture bridge failed", t);
+            onGestureCancel();
+        }
+    }
+
+    private void onGestureCancel() {
+        long now = SystemClock.uptimeMillis();
+        if (now - cancelWindowStarted > CANCEL_WINDOW_MS) {
+            cancelWindowStarted = now;
+            recentCancels = 0;
+        }
+        recentCancels++;
+        if (recentCancels >= CANCEL_LIMIT) {
+            gestureResult = "AUTO STOP: excessive gesture cancellations";
+            BridgeConfig.setArmed(this, false);
+            stopGesture();
+            updateOverlay();
+            Log.e(TAG, "Disarmed bridge due to repeated Android gesture cancellations");
         }
     }
 
@@ -276,7 +315,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         stopGesture();
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
-        float cx = dm.widthPixels * BridgeConfig.number(this, "left_x", 17) / 100f;
+        float cx = dm.widthPixels * BridgeConfig.number(this, "left_x", 20) / 100f;
         float cy = dm.heightPixels * BridgeConfig.number(this, "left_y", 71) / 100f;
         float radius = Math.min(dm.widthPixels, dm.heightPixels) *
             BridgeConfig.number(this, "radius", 12) / 100f;
@@ -388,8 +427,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                     "SDK heartbeat OK" : "SDK heartbeat LOST");
             String diagnostic = "App: " + foregroundPackage +
                 (eligibleApp() ? " [PAIRED]" : " [NOT PAIRED]") +
-                "\\n" + sdk + " | " + gestureResult +
-                "\\nLS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
+                "\n" + sdk + " | " + gestureResult +
+                "\nLS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
             if (!diagnostic.contentEquals(debugLabel.getText())) debugLabel.setText(diagnostic);
         }
