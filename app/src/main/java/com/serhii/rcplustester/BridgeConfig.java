@@ -14,10 +14,14 @@ public final class BridgeConfig {
     public static boolean armed(Context c) { return prefs(c).getBoolean("armed", false); }
     public static void setArmed(Context c, boolean armed) { prefs(c).edit().putBoolean("armed", armed).apply(); }
     public static String target(Context c) {
-        // Never pair the Android launcher or settings as a simulator.
-        // The installed DJI Virtual Flight package was confirmed as com.dji.virtual_flight.
+        // DJI Virtual Flight is occasionally reported as launcher3 by the TKPL2
+        // Accessibility event stream (verified from the 0.4 on-device screenshots).
+        // Keep an explicitly chosen compatibility target rather than silently
+        // replacing it with com.dji.virtual_flight on every read.
         String configured = prefs(c).getString("target", TARGET_DEFAULT).trim();
-        return TARGET_DEFAULT.equals(configured) ? configured : TARGET_DEFAULT;
+        if (TARGET_DEFAULT.equals(configured) ||
+                "com.android.launcher3".equals(configured)) return configured;
+        return TARGET_DEFAULT;
     }
     public static int number(Context c, String key, int fallback) {
         return prefs(c).getInt(key, fallback);
