@@ -605,7 +605,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             debugLabel = new TextView(this);
             debugLabel.setTextColor(Color.WHITE);
             debugLabel.setTextSize(11);
-            debugLabel.setMaxLines(4);
+            debugLabel.setMaxLines(7);
             bar.addView(debugLabel);
             WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
