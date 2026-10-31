@@ -214,7 +214,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
 
     private int mode() {
         // 1=left only, 2=right only, 3=both. Left-only is safest initial test.
-        return BridgeConfig.number(this, "touch_mode", 1);
+        return BridgeConfig.number(this, "touch_mode", 3);
     }
     private boolean leftMoving() {
         return mode() != 2 && (norm("LS_X") != 0f || norm("LS_Y") != 0f);
@@ -563,11 +563,15 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             pair.setTextSize(10);
             pair.setAllCaps(false);
             pair.setOnClickListener(v -> {
-                if (!BridgeConfig.TARGET_DEFAULT.equals(foregroundPackage)) {
-                    cameraStatus = "Pair only official DJI Virtual Flight";
+                boolean game = BridgeConfig.TARGET_DEFAULT.equals(foregroundPackage);
+                boolean compatibility = "com.android.launcher3".equals(foregroundPackage);
+                if (!game && !compatibility) {
+                    cameraStatus = "Pairing blocked for " + foregroundPackage;
                     return;
                 }
-                // Explicit user click binds the currently visible simulator package.
+                // User-initiated pairing only. Some TKPL2 builds incorrectly
+                // report launcher3 in fullscreen Unity game (seen on 0.4 photos).
+                // In launcher3 compatibility mode STOP before leaving the game.
                 BridgeConfig.prefs(this).edit().putString("target", foregroundPackage).apply();
                 gestureResult = "Paired: " + foregroundPackage;
                 stopGesture();
@@ -635,6 +639,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 "\n" + sdk + " | " + gestureResult +
                 "\nMode=" + (mode() == 1 ? "LEFT" : mode() == 2 ? "RIGHT" : "BOTH") +
                 " cancel=" + cancelledFrames + " gapMax=" + largestDispatchGapMs + "ms" +
+                ("com.android.launcher3".equals(BridgeConfig.target(this)) ? " [COMPATIBILITY]" : "") +
                 "\n" + cameraStatus +
                 " LS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
