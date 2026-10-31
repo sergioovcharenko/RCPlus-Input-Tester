@@ -25,10 +25,14 @@ public final class JoystickScreenDetector {
     }
     private static final int DIRECTIONS = 40;
     private final int w,h;
+    private final float priorLX,priorLY,priorRX,priorRY,priorLR,priorRR;
     private final int[] lum;
     private final float[] cs = new float[DIRECTIONS], ss = new float[DIRECTIONS];
 
-    private JoystickScreenDetector(Bitmap input) {
+    private JoystickScreenDetector(Bitmap input, float leftX,float leftY,
+            float rightX,float rightY,float leftRadius,float rightRadius) {
+        priorLX=leftX; priorLY=leftY; priorRX=rightX; priorRY=rightY;
+        priorLR=leftRadius; priorRR=rightRadius;
         float scale = Math.min(1f, 480f / input.getWidth());
         w = Math.max(10, Math.round(input.getWidth()*scale));
         h = Math.max(10, Math.round(input.getHeight()*scale));
@@ -79,18 +83,28 @@ public final class JoystickScreenDetector {
         return (sum / DIRECTIONS) * (positives/(float)DIRECTIONS)
             + (positives - 14) * 0.19f;
     }
+    private float rank(int cx,int cy,int r,boolean left) {
+        float edge=score(cx,cy,r);
+        if(edge<0) return -1f;
+        float ex=w*(left?priorLX:priorRX)/100f;
+        float ey=h*(left?priorLY:priorRY)/100f;
+        float er=Math.min(w,h)*(left?priorLR:priorRR)/100f;
+        float dx=cx-ex,dy=cy-ey;
+        return edge-0.09f*(float)Math.sqrt(dx*dx+dy*dy)
+            -0.12f*Math.abs(r-er);
+    }
     private Circle detect(boolean isLeft) {
-        int minX=Math.round(w*(isLeft?.055f:.675f));
+        int minX=Math.round(w*(isLeft?.07f:.65f));
         int maxX=Math.round(w*(isLeft?.36f:.96f));
-        int minY=Math.round(h*.57f), maxY=Math.round(h*.90f);
-        int minR=Math.max(10,Math.round(h*.09f));
-        int maxR=Math.max(minR+2,Math.round(h*.255f));
+        int minY=Math.round(h*.60f), maxY=Math.round(h*.87f);
+        int minR=Math.max(10,Math.round(h*.13f));
+        int maxR=Math.max(minR+2,Math.round(h*.25f));
         int bx=0,by=0,br=0;float best=-1f;
         for(int cy=minY;cy<=maxY;cy+=5) {
             for(int cx=minX;cx<=maxX;cx+=5) {
                 for(int r=minR;r<=maxR;r+=3) {
                     if(cx-r<0||cy-r<0||cx+r>=w||cy+r>=h)continue;
-                    float value=score(cx,cy,r);
+                    float value=rank(cx,cy,r,isLeft);
                     if(value>best){best=value;bx=cx;by=cy;br=r;}
                 }
             }
@@ -100,7 +114,7 @@ public final class JoystickScreenDetector {
             for(int cx=Math.max(minX,bx-7);cx<=Math.min(maxX,bx+7);cx+=2) {
                 for(int r=Math.max(minR,br-5);r<=Math.min(maxR,br+5);r++) {
                     if(cx-r<0||cy-r<0||cx+r>=w||cy+r>=h)continue;
-                    float value=score(cx,cy,r);
+                    float value=rank(cx,cy,r,isLeft);
                     if(value>best){best=value;bx=cx;by=cy;br=r;}
                 }
             }
@@ -109,10 +123,12 @@ public final class JoystickScreenDetector {
         if(best<4.2f) return null;
         return new Circle(bx*100f/w,by*100f/h,br*100f/Math.min(w,h),best);
     }
-    public static Result detect(Bitmap image) {
+    public static Result detect(Bitmap image, float leftX,float leftY,
+            float rightX,float rightY,float leftRadius,float rightRadius) {
         if(image==null||image.getWidth()<300||image.getHeight()<300)
             return new Result(null,null,"screenshot resolution too small");
-        JoystickScreenDetector d=new JoystickScreenDetector(image);
+        JoystickScreenDetector d=new JoystickScreenDetector(image,
+            leftX,leftY,rightX,rightY,leftRadius,rightRadius);
         Circle left=d.detect(true), right=d.detect(false);
         if(left==null||right==null)
             return new Result(left,right,"circle not confidently detected: L="
