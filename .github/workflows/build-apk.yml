@@ -59,7 +59,7 @@ jobs:
         if: ${{ env.DJI_APP_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: RCPlus-Input-Tester-0.3.3-debug
+          name: RCPlus-Input-Tester-0.3.4-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
