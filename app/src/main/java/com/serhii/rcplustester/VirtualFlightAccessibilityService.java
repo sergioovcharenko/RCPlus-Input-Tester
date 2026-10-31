@@ -54,7 +54,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private WindowManager windowManager;
     private LinearLayout overlay;
     private View centerMarkers;
-    private Button pairButton, testButton;
+    private Button pairButton, testButton, testBothButton;
     private TextView debugLabel;
     private String lastSdkMessage = "SDK: waiting";
     private String gestureResult = "touch: idle";
@@ -63,6 +63,10 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     private int recentCancels;
     private long lastOverlayRefresh;
     private long testGestureUntil;
+    private boolean diagnosticActive;
+    private int diagnosticPassed, diagnosticCancelled;
+    private String diagnosticResult = "10s diagnostic: not tested";
+    private long diagnosticStarted;
     private long lastGestureCompletedMs;
     private long largestDispatchGapMs;
     private int previousWheelSign;
@@ -241,7 +245,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             if (leftStroke != null || rightStroke != null || busy) stopGesture();
             return;
         }
-        if (now < testGestureUntil) return;
+        if (diagnosticActive || now < testGestureUntil) return;
         if (busy) return;
 
         // No synthetic touches at all while neutral, unless an existing
@@ -421,6 +425,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     }
 
     private void stopGesture() {
+        cancelDiagnostic();
         generation++;
         busy = false;
         if (leftStroke != null || rightStroke != null) {
@@ -445,37 +450,105 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
     }
 
 
-    private void testGesture() {
-        if (!eligibleApp() || windowManager == null) return;
+    /**
+     * Simulator-only comparison against the successful ADB 10-second swipe.
+     * One dispatch -> one continuous MotionEvent sequence. This deliberately
+     * does not use chained 200 ms gestures and never reads the live sticks.
+     * It is a diagnostic, NOT an implementation of real-time RC input.
+     */
+    private void testLongGesture(boolean both) {
+        if (!eligibleApp() || windowManager == null) {
+            diagnosticResult = "10s test: simulator not paired";
+            return;
+        }
+        if (diagnosticActive) return;
         stopGesture();
-        testGestureUntil = SystemClock.uptimeMillis() + 800;
+        diagnosticActive = true;
+        diagnosticStarted = SystemClock.uptimeMillis();
+        testGestureUntil = diagnosticStarted + 12000;
+        final int token = ++generation;
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getRealMetrics(dm);
-        float cx = dm.widthPixels * BridgeConfig.number(this, "left_x", 16) / 100f;
-        float cy = dm.heightPixels * BridgeConfig.number(this, "left_y", 71) / 100f;
-        float radius = Math.min(dm.widthPixels, dm.heightPixels) *
+        float w = dm.widthPixels, h = dm.heightPixels;
+        float radius = Math.min(w, h) *
             BridgeConfig.number(this, "radius", 25) / 100f;
-        gestureResult = "test touch: sending upward drag";
+        float lx = w * BridgeConfig.number(this, "left_x", 16) / 100f;
+        float ly = h * BridgeConfig.number(this, "left_y", 71) / 100f;
+        float rx = w * BridgeConfig.number(this, "right_x", 85) / 100f;
+        float ry = h * BridgeConfig.number(this, "right_y", 71) / 100f;
+        // The tested ADB motion travelled from centre towards the top;
+        // for the dual-finger diagnostic, mirror the second finger's travel.
+        GestureDescription.Builder b = new GestureDescription.Builder();
+        b.addStroke(new GestureDescription.StrokeDescription(
+            path(lx, ly, lx, ly - radius * 0.44f), 0, 10000, false));
+        if (both) {
+            b.addStroke(new GestureDescription.StrokeDescription(
+                path(rx, ry, rx, ry - radius * 0.44f), 0, 10000, false));
+        }
+        diagnosticResult = "10s " + (both ? "DUAL" : "LEFT") + ": running";
+        gestureResult = diagnosticResult;
+        updateOverlay();
         try {
-            GestureDescription g = new GestureDescription.Builder().addStroke(
-                new GestureDescription.StrokeDescription(
-                    path(cx, cy, cx, cy - radius * 0.65f), 0, 500, false)
-            ).build();
-            boolean accepted = dispatchGesture(g, new GestureResultCallback() {
-                @Override public void onCompleted(GestureDescription result) {
-                    gestureResult = "test touch: OK";
+            boolean accepted = dispatchGesture(b.build(), new GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription g) {
+                    if (token != generation) return;
+                    diagnosticActive = false;
+                    testGestureUntil = 0;
+                    diagnosticPassed++;
+                    long duration = SystemClock.uptimeMillis() - diagnosticStarted;
+                    diagnosticResult = "10s " + (both ? "DUAL" : "LEFT") +
+                        ": COMPLETED after " + duration + "ms";
+                    gestureResult = diagnosticResult;
+                    CrashNotes.record(VirtualFlightAccessibilityService.this, diagnosticResult);
+                    updateOverlay();
                     scheduleFrame();
                 }
-                @Override public void onCancelled(GestureDescription result) {
-                    gestureResult = "test touch: cancelled";
-                    scheduleFrame();
+                @Override public void onCancelled(GestureDescription g) {
+                    if (token != generation) return;
+                    diagnosticActive = false;
+                    testGestureUntil = 0;
+                    diagnosticCancelled++;
+                    long duration = SystemClock.uptimeMillis() - diagnosticStarted;
+                    diagnosticResult = "10s " + (both ? "DUAL" : "LEFT") +
+                        ": CANCELLED after " + duration + "ms";
+                    gestureResult = diagnosticResult;
+                    CrashNotes.record(VirtualFlightAccessibilityService.this, diagnosticResult);
+                    updateOverlay();
+                    // No automatic restart: any cancellation is important evidence.
                 }
             }, handler);
-            if (!accepted) gestureResult = "test touch: rejected by Android";
+            if (!accepted) {
+                diagnosticActive = false;
+                testGestureUntil = 0;
+                diagnosticResult = "10s gesture rejected by Android";
+                gestureResult = diagnosticResult;
+                CrashNotes.record(this, diagnosticResult);
+            }
         } catch (Throwable t) {
-            gestureResult = "test touch: " + t.getClass().getSimpleName();
+            diagnosticActive = false;
+            testGestureUntil = 0;
+            diagnosticResult = "10s test failed: " + t.getClass().getSimpleName();
+            gestureResult = diagnosticResult;
+            CrashNotes.exception(this, "10s gesture test", t);
         }
-        scheduleFrame();
+        updateOverlay();
+    }
+
+    private void cancelDiagnostic() {
+        if (!diagnosticActive) return;
+        diagnosticActive = false;
+        testGestureUntil = 0;
+        diagnosticResult = "10s test: manually interrupted";
+        // Any new dispatch cancels the active injected gesture on Android 11.
+        // Use one 1ms tap in the non-control top-left corner to release fingers.
+        try {
+            GestureDescription.Builder b = new GestureDescription.Builder();
+            b.addStroke(new GestureDescription.StrokeDescription(
+                path(2f, 2f, 2f, 2f), 0, 1, false));
+            dispatchGesture(b.build(), null, handler);
+        } catch (Throwable t) {
+            CrashNotes.exception(this, "Cancel diagnostic", t);
+        }
     }
 
 
@@ -582,12 +655,20 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             buttons.addView(pair);
 
             Button test = new Button(this);
-            test.setText("TEST TOUCH");
+            test.setText("TEST 10s L");
             test.setTextSize(10);
             test.setAllCaps(false);
-            test.setOnClickListener(v -> testGesture());
+            test.setOnClickListener(v -> testLongGesture(false));
             testButton = test;
             buttons.addView(test);
+
+            Button bothTest = new Button(this);
+            bothTest.setText("TEST 10s 2X");
+            bothTest.setTextSize(10);
+            bothTest.setAllCaps(false);
+            bothTest.setOnClickListener(v -> testLongGesture(true));
+            testBothButton = bothTest;
+            buttons.addView(bothTest);
 
             Button stop = new Button(this);
             stop.setText("STOP BRIDGE");
@@ -597,6 +678,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             stop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 Color.rgb(175, 45, 45)));
             stop.setOnClickListener(v -> {
+                cancelDiagnostic();
                 BridgeConfig.prefs(this).edit().putString("last_stop_reason", "Stopped with red STOP button").apply();
                 BridgeConfig.setArmed(this, false);
                 stopGesture();
@@ -609,7 +691,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             debugLabel = new TextView(this);
             debugLabel.setTextColor(Color.WHITE);
             debugLabel.setTextSize(11);
-            debugLabel.setMaxLines(7);
+            debugLabel.setMaxLines(9);
             bar.addView(debugLabel);
             WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -630,6 +712,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         }
         if (pairButton != null) pairButton.setVisibility(eligibleApp() ? View.GONE : View.VISIBLE);
         if (testButton != null) testButton.setVisibility(eligibleApp() ? View.VISIBLE : View.GONE);
+        if (testBothButton != null) testBothButton.setVisibility(eligibleApp() ? View.VISIBLE : View.GONE);
         if (debugLabel != null) {
             String sdk = lastHeartbeat == 0 ? "waiting for SDK heartbeat" :
                 (SystemClock.uptimeMillis() - lastHeartbeat < 2500 ?
@@ -641,6 +724,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 " cancel=" + cancelledFrames + " gapMax=" + largestDispatchGapMs + "ms" +
                 ("com.android.launcher3".equals(BridgeConfig.target(this)) ? " [COMPATIBILITY]" : "") +
                 "\n" + cameraStatus +
+                "\n" + diagnosticResult + " (OK " + diagnosticPassed +
+                ", cancelled " + diagnosticCancelled + ")" +
                 " LS=" + (int)raw("LS_X") + "," + (int)raw("LS_Y") +
                 " RS=" + (int)raw("RS_X") + "," + (int)raw("RS_Y");
             if (!diagnostic.contentEquals(debugLabel.getText())) debugLabel.setText(diagnostic);
@@ -657,6 +742,7 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         removeCenterMarkers();
         pairButton = null;
         testButton = null;
+        testBothButton = null;
         debugLabel = null;
     }
 }
