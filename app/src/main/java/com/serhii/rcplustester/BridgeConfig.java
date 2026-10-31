@@ -14,7 +14,10 @@ public final class BridgeConfig {
     public static boolean armed(Context c) { return prefs(c).getBoolean("armed", false); }
     public static void setArmed(Context c, boolean armed) { prefs(c).edit().putBoolean("armed", armed).apply(); }
     public static String target(Context c) {
-        return prefs(c).getString("target", TARGET_DEFAULT).trim();
+        // Never pair the Android launcher or settings as a simulator.
+        // The installed DJI Virtual Flight package was confirmed as com.dji.virtual_flight.
+        String configured = prefs(c).getString("target", TARGET_DEFAULT).trim();
+        return TARGET_DEFAULT.equals(configured) ? configured : TARGET_DEFAULT;
     }
     public static int number(Context c, String key, int fallback) {
         return prefs(c).getInt(key, fallback);
