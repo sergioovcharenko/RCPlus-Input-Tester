@@ -247,6 +247,13 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
         }
         if (diagnosticActive || now < testGestureUntil) return;
         if (busy) return;
+        // Diagnostic-only is the safe default: don't re-arm the known-unreliable
+        // 200ms touch chain between test gestures.
+        if (BridgeConfig.prefs(this).getBoolean("diagnostic_only", true)) {
+            gestureResult = "DIAGNOSTIC ONLY; live controls disabled";
+            if (leftStroke != null || rightStroke != null) stopGesture();
+            return;
+        }
 
         // No synthetic touches at all while neutral, unless an existing
         // individual finger needs a clean UP event.
@@ -500,6 +507,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                         ": COMPLETED after " + duration + "ms";
                     gestureResult = diagnosticResult;
                     CrashNotes.record(VirtualFlightAccessibilityService.this, diagnosticResult);
+                    BridgeConfig.prefs(VirtualFlightAccessibilityService.this).edit()
+                        .putString("last_diagnostic_result", diagnosticResult).apply();
                     updateOverlay();
                     scheduleFrame();
                 }
@@ -513,6 +522,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                         ": CANCELLED after " + duration + "ms";
                     gestureResult = diagnosticResult;
                     CrashNotes.record(VirtualFlightAccessibilityService.this, diagnosticResult);
+                    BridgeConfig.prefs(VirtualFlightAccessibilityService.this).edit()
+                        .putString("last_diagnostic_result", diagnosticResult).apply();
                     updateOverlay();
                     // No automatic restart: any cancellation is important evidence.
                 }
@@ -523,6 +534,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
                 diagnosticResult = "10s gesture rejected by Android";
                 gestureResult = diagnosticResult;
                 CrashNotes.record(this, diagnosticResult);
+                BridgeConfig.prefs(this).edit()
+                    .putString("last_diagnostic_result", diagnosticResult).apply();
             }
         } catch (Throwable t) {
             diagnosticActive = false;
@@ -530,6 +543,8 @@ public final class VirtualFlightAccessibilityService extends AccessibilityServic
             diagnosticResult = "10s test failed: " + t.getClass().getSimpleName();
             gestureResult = diagnosticResult;
             CrashNotes.exception(this, "10s gesture test", t);
+            BridgeConfig.prefs(this).edit()
+                .putString("last_diagnostic_result", diagnosticResult).apply();
         }
         updateOverlay();
     }
